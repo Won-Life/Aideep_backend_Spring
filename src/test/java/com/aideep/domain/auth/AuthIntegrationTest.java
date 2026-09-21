@@ -1,0 +1,565 @@
+package com.aideep.domain.auth;
+
+import com.aideep.domain.auth.dto.GoogleProfile;
+import com.aideep.domain.auth.dto.SignupTicket;
+import com.aideep.domain.auth.dto.request.LoginRequest;
+import com.aideep.domain.auth.dto.request.OAuthSignupRequest;
+import com.aideep.domain.auth.dto.request.PasswordRequest;
+import com.aideep.domain.auth.dto.request.RefreshRequest;
+import com.aideep.domain.auth.dto.request.SendEmailRequest;
+import com.aideep.domain.auth.dto.request.SignupRequest;
+import com.aideep.domain.auth.dto.request.VerifyEmailRequest;
+import com.aideep.domain.auth.dto.response.TokensResponse;
+import com.aideep.domain.auth.entity.AuthUser;
+import com.aideep.domain.auth.repository.AuthUserRepository;
+import com.aideep.domain.auth.repository.OAuthAccountRepository;
+import com.aideep.domain.auth.security.CurrentUser;
+import com.aideep.domain.auth.security.UserDetail;
+import com.aideep.domain.auth.service.AuthService;
+import com.aideep.domain.auth.service.JwtTokenService;
+import com.aideep.domain.auth.service.OAuthService;
+import com.aideep.domain.auth.service.RedisAuthStore;
+import com.aideep.domain.auth.support.FakeIdentityServers;
+import com.aideep.global.exception.BusinessException;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import tools.jackson.databind.ObjectMapper;
+
+import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@Testcontainers
+@SpringBootTest(properties = {
+        "auth.jwt-secret=local-test-secret-at-least-32-bytes-long",
+        "auth.frontend-url=http://frontend.test",
+        "auth.google-client-id=test-client", "auth.google-client-secret=test-client-secret",
+        "auth.google-callback-url=http://backend.test/v1/aideep/api/auth/google/callback",
+        "auth.mail-user=mail@example.com", "auth.mail-pass=test-password",
+        "auth.master-user-ids=11111111-1111-4111-8111-111111111111",
+        "auth.demo-secret=demo-key", "auth.demo-workspace-id=22222222-2222-4222-8222-222222222222",
+        "spring.mail.host=127.0.0.1", "spring.mail.properties.mail.smtp.auth=false",
+        "spring.mail.properties.mail.smtp.starttls.enable=false", "spring.jpa.hibernate.ddl-auto=validate"
+})
+@ActiveProfiles("dev")
+@AutoConfigureMockMvc
+@Import(AuthIntegrationTest.ProtectedEndpoints.class)
+class AuthIntegrationTest {
+    static final String BASE = "/v1/aideep/api/auth";
+    static final UUID USER = UUID.fromString("11111111-1111-4111-8111-111111111111");
+    static final UUID WORKSPACE = UUID.fromString("22222222-2222-4222-8222-222222222222");
+    static final Instant NOW = Instant.parse("2030-01-01T00:00:00Z");
+    // Generated by the original backend's Node bcrypt (cost 10).
+    static final String LEGACY_HASH = "$2b$10$vKyepNKyNWJn1.C67gn1hOEi1.M.5LkX5I7LZ375G5QfChf.7eZxG";
+    @Container
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine").withInitScript(
+            "domain/auth/auth-schema.sql");
+    @Container
+    static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
+    static final FakeIdentityServers EXTERNAL = new FakeIdentityServers();
+
+    @DynamicPropertySource
+    static void settings(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("auth.google-token-url", () -> EXTERNAL.googleUrl() + "/token");
+        registry.add("auth.google-user-info-url", () -> EXTERNAL.googleUrl() + "/userinfo");
+        registry.add("spring.mail.port", EXTERNAL::smtpPort);
+    }
+
+    @Autowired
+    MockMvc mockMvc;
+    @Autowired
+    ObjectMapper objectMapper;
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+    @Autowired
+    StringRedisTemplate stringRedisTemplate;
+    @Autowired
+    AuthUserRepository authUserRepository;
+    @Autowired
+    OAuthAccountRepository oAuthAccountRepository;
+    @Autowired
+    OAuthService.AuthDatabase authDatabase;
+    @Autowired
+    RedisAuthStore redisAuthStore;
+    @Autowired
+    JwtTokenService jwtTokenService;
+    @Autowired
+    AuthService authService;
+    @Autowired
+    PasswordEncoder passwordEncoder;
+    @MockitoBean
+    Clock clock;
+
+    @BeforeEach
+    void reset() {
+        when(clock.instant()).thenReturn(NOW);
+        when(clock.millis()).thenReturn(NOW.toEpochMilli());
+        jdbcTemplate.execute("truncate users_workspaces, oauth_accounts, users, workspaces cascade");
+        try (var connection = stringRedisTemplate.getConnectionFactory().getConnection()) {
+            connection.serverCommands().flushDb();
+        }
+        jdbcTemplate.update("insert into users(user_id,email,username,password) values (?,?,?,?)", USER,
+                "legacy@example.com",
+                "Legacy", LEGACY_HASH);
+        jdbcTemplate.update("insert into workspaces(workspace_id) values (?)", WORKSPACE);
+        EXTERNAL.reset();
+    }
+
+    @AfterAll
+    static void stopExternal() throws Exception {
+        EXTERNAL.close();
+    }
+
+    @Test
+    void contextLoads() {
+        assertThat(authUserRepository.findById(USER)).isPresent();
+    }
+
+    @Test
+    void loginKeepsWireContractAndLegacyBcrypt() throws Exception {
+        var result = postJson("/login", new LoginRequest("legacy@example.com", "legacy-password"))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.resultType").value("SUCCESS"))
+                .andExpect(jsonPath("$.error").value(org.hamcrest.Matchers.nullValue())).andReturn();
+        TokensResponse pair = objectMapper.treeToValue(
+                objectMapper.readTree(result.getResponse().getContentAsString()).get("success"),
+                TokensResponse.class);
+        Jwt access = jwtTokenService.decode(pair.accessToken());
+        assertThat(access.getClaimAsString("user_id")).isEqualTo(USER.toString());
+        assertThat(access.getClaimAsString("userName")).isEqualTo("Legacy");
+        assertThat(access.getExpiresAt()).isEqualTo(NOW.plusSeconds(900));
+        assertThat(jwtTokenService.decode(pair.refreshToken()).getExpiresAt()).isEqualTo(NOW.plusSeconds(604800));
+        assertThat(access.getClaims()).doesNotContainKeys("jti", "token_use", "type", "sub");
+        assertThat(redisAuthStore.get("refreshToken:" + USER)).isEqualTo(pair.refreshToken());
+        assertThat(stringRedisTemplate.getExpire("refreshToken:" + USER)).isBetween(604795L, 604800L);
+        mockMvc.perform(get("/test/protected").header("Authorization", "Bearer " + pair.accessToken()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.success.user_id").value(USER.toString()));
+        // Explicit compatibility decision: legacy refresh tokens also pass API JWT validation.
+        mockMvc.perform(get("/test/protected").header("Authorization", "Bearer " + pair.refreshToken()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void userDetailUsesLatestDatabaseValuesAndRemainsCurrentUserCompatible() throws Exception {
+        TokensResponse tokensResponse = pair();
+        jdbcTemplate.update("update users set username=?, email=?, updated_at=? where user_id=?",
+                "Updated User", "updated@example.com", Timestamp.from(NOW.plusSeconds(60)), USER);
+
+        mockMvc.perform(get("/test/detail").header("Authorization", "Bearer " + tokensResponse.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success.user_id").value(USER.toString()))
+                .andExpect(jsonPath("$.success.user_name").value("Updated User"))
+                .andExpect(jsonPath("$.success.email").value("updated@example.com"));
+        mockMvc.perform(get("/test/protected").header("Authorization", "Bearer " + tokensResponse.accessToken()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success.user_id").value(USER.toString()));
+    }
+
+    @Test
+    void missingOrDeletedJwtUserIsUnauthorized() throws Exception {
+        TokensResponse tokensResponse = pair();
+        jdbcTemplate.update("update users set deleted_at=? where user_id=?", Timestamp.from(NOW), USER);
+
+        mockMvc.perform(get("/test/detail").header("Authorization", "Bearer " + tokensResponse.accessToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON401"));
+
+        jdbcTemplate.update("delete from users where user_id=?", USER);
+        mockMvc.perform(get("/test/detail").header("Authorization", "Bearer " + tokensResponse.accessToken()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON401"));
+    }
+
+    @Test
+    void invalidLoginReturnsNestError() throws Exception {
+        postJson("/login", new LoginRequest("legacy@example.com", "wrong"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.errorCode").value("AUTH_PASSWORD_MISMATCH"))
+                .andExpect(jsonPath("$.error.reason").value("비밀번호가 일치하지 않습니다."))
+                .andExpect(jsonPath("$.error.data").value(org.hamcrest.Matchers.nullValue()));
+        postJson("/login", new LoginRequest("missing@example.com", "wrong")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void bearerQueryFallbackAndHeaderPrecedence() throws Exception {
+        String token = pair().accessToken();
+        mockMvc.perform(get("/test/protected").param("token", token)).andExpect(status().isOk());
+        mockMvc.perform(get("/test/protected").param("token", token).header("Authorization", "Bearer invalid"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/test/protected")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(BASE + "/oauth/links")).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON401"));
+        mockMvc.perform(get("/api/previously-public")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void expiredAndTamperedTokensAreRejected() throws Exception {
+        String token = pair().accessToken();
+        String[] parts = token.split("\\.");
+        String forged = parts[0] + "." + Base64.getUrlEncoder().withoutPadding()
+                .encodeToString("{\"user_id\":\"other\"}".getBytes(StandardCharsets.UTF_8)) + "." + parts[2];
+        mockMvc.perform(get("/test/protected").header("Authorization", "Bearer " + forged))
+                .andExpect(status().isUnauthorized());
+        when(clock.instant()).thenReturn(NOW.plusSeconds(900));
+        mockMvc.perform(get("/test/protected").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void refreshRotatesStoredTokenAndRejectsPreviousOne() throws Exception {
+        TokensResponse first = pair();
+        when(clock.instant()).thenReturn(NOW.plusSeconds(1));
+        var result = postJson("/refresh", new RefreshRequest(first.refreshToken())).andExpect(status().isCreated())
+                .andReturn();
+        String next = objectMapper.readTree(result.getResponse().getContentAsString()).at("/success/refreshToken")
+                .asString();
+        assertThat(next).isNotEqualTo(first.refreshToken());
+        assertThat(redisAuthStore.get("refreshToken:" + USER)).isEqualTo(next);
+        postJson("/refresh", new RefreshRequest(first.refreshToken())).andExpect(status().isUnauthorized());
+        postJson("/refresh", new RefreshRequest(first.accessToken())).andExpect(status().isUnauthorized());
+        postJson("/refresh", new RefreshRequest("invalid")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void concurrentRefreshCompareAndSetHasOneWinner() throws Exception {
+        redisAuthStore.saveRefresh(USER.toString(), "old");
+        try (var executorService = Executors.newFixedThreadPool(2)) {
+            var a = executorService.submit(() -> redisAuthStore.rotateRefresh(USER.toString(), "old", "next-a"));
+            var b = executorService.submit(() -> redisAuthStore.rotateRefresh(USER.toString(), "old", "next-b"));
+            assertThat(List.of(a.get(), b.get())).containsExactlyInAnyOrder(true, false);
+        }
+    }
+
+    @Test
+    void logoutRevokesQueryTokenAndRefresh() throws Exception {
+        TokensResponse pair = pair();
+        mockMvc.perform(delete(BASE + "/logout").param("token", pair.accessToken())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value("로그아웃 성공"));
+        assertThat(redisAuthStore.get("refreshToken:" + USER)).isNull();
+        assertThat(stringRedisTemplate.getExpire("blacklist:" + pair.accessToken())).isBetween(895L, 900L);
+        mockMvc.perform(get("/test/protected").param("token", pair.accessToken())).andExpect(status().isUnauthorized());
+        postJson("/refresh", new RefreshRequest(pair.refreshToken())).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void masterRequiresAllowlistRedisMatchAndAuthority() throws Exception {
+        var result = postJson("/issue/master", new LoginRequest("legacy@example.com", "legacy-password"))
+                .andExpect(status().isCreated()).andReturn();
+        String master = objectMapper.readTree(result.getResponse().getContentAsString()).at("/success/masterToken")
+                .asString();
+        assertThat(jwtTokenService.decode(master).getExpiresAt()).isEqualTo(NOW.plus(Duration.ofDays(30)));
+        assertThat(redisAuthStore.get("masterToken:" + USER)).isEqualTo(master);
+        mockMvc.perform(get("/test/master").header("Authorization", "Bearer " + master)).andExpect(status().isOk());
+        mockMvc.perform(get("/test/master").header("Authorization", "Bearer " + pair().accessToken()))
+                .andExpect(status().isForbidden());
+        redisAuthStore.delete("masterToken:" + USER);
+        mockMvc.perform(get("/test/master").header("Authorization", "Bearer " + master))
+                .andExpect(status().isUnauthorized());
+        authDatabase.createUser("other@example.com", "Other", LEGACY_HASH);
+        postJson("/issue/master", new LoginRequest("other@example.com", "legacy-password")).andExpect(
+                status().isForbidden());
+    }
+
+    @Test
+    void emailRoundTripAndSignupKeepResponseAndHash() throws Exception {
+        postJson("/email/send", new SendEmailRequest("new@example.com")).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success.ok").value(true)).andExpect(jsonPath("$.success.code").doesNotExist());
+        String rawMail = EXTERNAL.messages.poll(5, TimeUnit.SECONDS);
+        assertThat(rawMail).isNotNull();
+        String raw = redisAuthStore.get("auth:new@example.com");
+        String code = objectMapper.readTree(raw).get("code").asString();
+        var message = new jakarta.mail.internet.MimeMessage(jakarta.mail.Session.getInstance(new Properties()),
+                new java.io.ByteArrayInputStream(rawMail.getBytes(StandardCharsets.UTF_8)));
+        assertThat(message.getContent().toString()).contains(code);
+        assertThat(stringRedisTemplate.getExpire("auth:new@example.com")).isBetween(175L, 180L);
+        postJson("/email/verify", new VerifyEmailRequest("new@example.com", Integer.parseInt(code))).andExpect(
+                status().isCreated());
+        assertThat(redisAuthStore.get("auth:new@example.com")).isNull();
+        assertThat(stringRedisTemplate.getExpire("verified:new@example.com")).isBetween(595L, 600L);
+        SignupRequest signup = new SignupRequest("new@example.com", "new-password", "New User", "01012345678");
+        postJson("/signup", signup).andExpect(status().isCreated()).andExpect(jsonPath("$.success").value("회원가입 성공"));
+        assertThat(passwordEncoder.matches("new-password",
+                authUserRepository.findByEmail("new@example.com").orElseThrow().getPassword())).isTrue();
+        assertThat(redisAuthStore.get("verified:new@example.com")).isNull();
+        postJson("/signup", signup).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void emailVerificationAttemptsExpireWithoutExtendingTtl() throws Exception {
+        redisAuthStore.saveCode("new@example.com", "123456", clock.millis());
+        stringRedisTemplate.expire("auth:new@example.com", Duration.ofSeconds(90));
+        for (int attempt = 0; attempt < 4; attempt++) {
+            postJson("/email/verify", new VerifyEmailRequest("new@example.com", 111111)).andExpect(
+                    status().isUnauthorized());
+        }
+        assertThat(stringRedisTemplate.getExpire("auth:new@example.com")).isLessThanOrEqualTo(90L);
+        postJson("/email/verify", new VerifyEmailRequest("new@example.com", 111111)).andExpect(
+                        status().isUnauthorized())
+                .andExpect(jsonPath("$.error.reason").value("인증 횟수를 초과했습니다. 다시 요청해주세요."));
+        assertThat(redisAuthStore.get("auth:new@example.com")).isNull();
+        postJson("/email/verify", new VerifyEmailRequest("new@example.com", 123456)).andExpect(
+                status().isUnauthorized());
+        postJson("/signup", new SignupRequest("new@example.com", "password", "New", "")).andExpect(
+                status().isForbidden());
+    }
+
+    @Test
+    void fractionalEmailCodeIsNotSilentlyTruncated() throws Exception {
+        redisAuthStore.saveCode("new@example.com", "123456", clock.millis());
+        mockMvc.perform(post(BASE + "/email/verify").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"new@example.com\",\"code\":123456.7}"))
+                .andExpect(status().isUnauthorized());
+        assertThat(redisAuthStore.get("verified:new@example.com")).isNull();
+    }
+
+    @Test
+    void expiredStateAndTicketAreRejected() throws Exception {
+        String state = beginGoogle();
+        stringRedisTemplate.expire("oauth:link_state:" + state, Duration.ZERO);
+        mockMvc.perform(get(BASE + "/google/callback").param("state", state).param("code", "code"))
+                .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=invalid_state"));
+        postJson("/oauth/signup/complete", new OAuthSignupRequest("expired-ticket", "New User", true)).andExpect(
+                status().isUnauthorized());
+    }
+
+    @Test
+    void mailDeliveryFailureIsNotReportedAsSuccess() throws Exception {
+        EXTERNAL.rejectMail = true;
+        postJson("/email/send", new SendEmailRequest("new@example.com")).andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON500"));
+    }
+
+    @Test
+    void googleSignupUsesOneTimeStateAndTicket() throws Exception {
+        String state = beginGoogle();
+        String redirect = mockMvc.perform(
+                        get(BASE + "/google/callback").param("state", state).param("code", "google-code"))
+                .andExpect(status().isFound()).andReturn().getResponse().getRedirectedUrl();
+        var query = UriComponentsBuilder.fromUriString(redirect).build().getQueryParams();
+        assertThat(query.getFirst("kind")).isEqualTo("signup_required");
+        String ticket = query.getFirst("ticket");
+        assertThat(stringRedisTemplate.getExpire("oauth:signup_ticket:" + ticket)).isBetween(295L, 300L);
+        assertThat(redisAuthStore.get("oauth:link_state:" + state)).isNull();
+        assertThat(EXTERNAL.tokenForm).contains("code=google-code", "client_id=test-client",
+                "grant_type=authorization_code");
+        assertThat(EXTERNAL.userInfoAuthorization).isEqualTo("Bearer fake-google-access");
+        mockMvc.perform(get(BASE + "/google/callback").param("state", state).param("code", "google-code"))
+                .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=invalid_state"));
+        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", false)).andExpect(
+                status().isBadRequest());
+        assertThat(redisAuthStore.get("oauth:signup_ticket:" + ticket)).isNotNull();
+        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", true)).andExpect(
+                status().isCreated());
+        AuthUser user = authUserRepository.findByEmail("google@example.com").orElseThrow();
+        assertThat(user.getPassword()).isNull();
+        assertThat(oAuthAccountRepository.findByUserIdAndDeletedAtIsNull(user.getId())).hasSize(1);
+        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", true)).andExpect(
+                status().isUnauthorized());
+    }
+
+    @Test
+    void googleExistingAccountLogsInAndConflictingEmailRedirects() throws Exception {
+        authDatabase.link(USER, new GoogleProfile("google-subject", "legacy@example.com", "Legacy"));
+        mockMvc.perform(get(BASE + "/google/callback").param("state", beginGoogle()).param("code", "code"))
+                .andExpect(status().isFound()).andExpect(
+                        redirectedUrlPattern("http://frontend.test/oauth/callback?kind=login&accessToken=*&refreshToken=*"));
+        oAuthAccountRepository.deleteAll();
+        EXTERNAL.profile = "{\"sub\":\"new-subject\",\"email\":\"legacy@example.com\",\"email_verified\":true}";
+        mockMvc.perform(get(BASE + "/google/callback").param("state", beginGoogle()).param("code", "code"))
+                .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=email_conflict"));
+    }
+
+    @Test
+    void googleFailuresRedirectWithoutTokenLeak() throws Exception {
+        mockMvc.perform(get(BASE + "/google/callback").param("code", "code"))
+                .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=invalid_state"));
+        EXTERNAL.profile = "{\"sub\":\"new-subject\",\"email\":\"new@example.com\",\"email_verified\":false}";
+        mockMvc.perform(get(BASE + "/google/callback").param("state", beginGoogle()).param("code", "code"))
+                .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=oauth_failed"));
+        mockMvc.perform(get(BASE + "/google/callback").param("state", beginGoogle()).param("error", "access_denied"))
+                .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=oauth_failed"));
+    }
+
+    @Test
+    void linkListUnlinkAndReviveSameAccount() throws Exception {
+        String token = pair().accessToken();
+        String link = mockMvc.perform(get(BASE + "/oauth/link/google").header("Authorization", "Bearer " + token))
+                .andExpect(status().isFound()).andReturn().getResponse().getRedirectedUrl();
+        String state = UriComponentsBuilder.fromUriString(link).build().getQueryParams().getFirst("state");
+        mockMvc.perform(get(BASE + "/google/callback").param("state", state).param("code", "code"))
+                .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=linked"));
+        mockMvc.perform(get(BASE + "/oauth/links").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.success[0].provider").value("google"))
+                .andExpect(jsonPath("$.success[0].created_at").exists());
+        mockMvc.perform(delete(BASE + "/oauth/link/google").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        assertThat(oAuthAccountRepository.findByUserIdAndDeletedAtIsNull(USER)).isEmpty();
+        authDatabase.link(USER, new GoogleProfile("google-subject", "google@example.com", "Google User"));
+        assertThat(oAuthAccountRepository.count()).isEqualTo(1);
+        assertThat(oAuthAccountRepository.findByUserIdAndDeletedAtIsNull(USER)).hasSize(1);
+    }
+
+    @Test
+    void lastAuthenticationMethodCannotBeRemovedAndPasswordCanBeSet() throws Exception {
+        AuthUser user = authDatabase.createOAuthUser(
+                new SignupTicket("google", "only-google", "oauth@example.com", "OAuth"), "OAuth");
+        String token = authService.issue(AuthService.identity(user)).accessToken();
+        mockMvc.perform(delete(BASE + "/oauth/link/google").header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.error.reason").value("LAST_AUTH_METHOD"));
+        mockMvc.perform(patch(BASE + "/password").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordRequest(null, "new-password"))))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete(BASE + "/oauth/link/google").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete(BASE + "/oauth/link/google").header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void passwordChangeRequiresCurrentPassword() throws Exception {
+        String token = pair().accessToken();
+        for (String current : new String[]{null, "wrong"}) {
+            mockMvc.perform(patch(BASE + "/password").header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new PasswordRequest(current, "new-password"))))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(patch(BASE + "/password").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new PasswordRequest("legacy-password", "new-password"))))
+                .andExpect(status().isOk());
+        postJson("/login", new LoginRequest("legacy@example.com", "new-password")).andExpect(status().isCreated());
+    }
+
+    @Test
+    void oauthSignupUniqueConflictRollsBackUser() {
+        authDatabase.link(USER, new GoogleProfile("existing-subject", "legacy@example.com", "Legacy"));
+        assertThatThrownBy(() -> authDatabase.createOAuthUser(
+                new SignupTicket("google", "existing-subject", "rollback@example.com", "Rollback"), "Rollback"))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(authUserRepository.findByEmail("rollback@example.com")).isEmpty();
+    }
+
+    @Test
+    void demoCreatesSeparateViewerGuestsAndRejectsBadSecret() throws Exception {
+        mockMvc.perform(get(BASE + "/demo/enter").param("key", "wrong")).andExpect(status().isNotFound());
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(get(BASE + "/demo/enter").param("key", "demo-key"))
+                    .andExpect(status().isFound()).andExpect(redirectedUrlPattern(
+                            "http://frontend.test/oauth/callback?kind=login&accessToken=*&refreshToken=*"));
+        }
+        assertThat(jdbcTemplate.queryForList("select role::text from users_workspaces", String.class)).containsExactly(
+                "VIEWER",
+                "VIEWER");
+        assertThat(authUserRepository.count()).isEqualTo(3);
+        assertThatThrownBy(() -> authDatabase.createGuest(UUID.randomUUID(), "rollback@example.com", "Guest",
+                LEGACY_HASH)).isInstanceOf(BusinessException.class);
+        assertThat(authUserRepository.findByEmail("rollback@example.com")).isEmpty();
+    }
+
+    @Test
+    void swaggerShowsPublicLoginAndProtectedAccountOperations() throws Exception {
+        mockMvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.paths['/auth/login'].post").exists())
+                .andExpect(jsonPath("$.paths['/auth/login'].post.responses['201']").exists())
+                .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"));
+    }
+
+    @Test
+    void statelessRequestsDoNotCreateSession() throws Exception {
+        var result = mockMvc.perform(get("/test/protected").header("Authorization", "Bearer " + pair().accessToken()))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(result.getRequest().getSession(false)).isNull();
+        assertThat(result.getResponse().getCookies()).isEmpty();
+    }
+
+    private TokensResponse pair() {
+        return authService.login(new LoginRequest("legacy@example.com", "legacy-password"));
+    }
+
+    private ResultActions postJson(String path, Object body) throws Exception {
+        return mockMvc.perform(
+                post(BASE + path).contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)));
+    }
+
+    private String beginGoogle() throws Exception {
+        String url = mockMvc.perform(get(BASE + "/google")).andExpect(status().isFound()).andReturn().getResponse()
+                .getRedirectedUrl();
+        String state = UriComponentsBuilder.fromUriString(url).build().getQueryParams().getFirst("state");
+        assertThat(stringRedisTemplate.getExpire("oauth:link_state:" + state)).isBetween(295L, 300L);
+        return state;
+    }
+
+    @RestController
+    static class ProtectedEndpoints {
+        @GetMapping("/test/protected")
+        Map<String, String> identity(@AuthenticationPrincipal CurrentUser currentUser) {
+            return Map.of("user_id", currentUser.userId().toString());
+        }
+
+        @GetMapping("/test/detail")
+        Map<String, String> detail(@AuthenticationPrincipal UserDetail userDetail) {
+            return Map.of("user_id", userDetail.userId().toString(), "user_name", userDetail.userName(),
+                    "email", userDetail.email());
+        }
+
+        @GetMapping("/test/master")
+        @PreAuthorize("hasRole('MASTER')")
+        Map<String, Boolean> master() {
+            return Map.of("master", true);
+        }
+    }
+}
