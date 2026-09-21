@@ -1,0 +1,25 @@
+my:
+  nickname: DEV USER!!!!!!
+
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:54000/aideep
+    username: aideep
+    password: aideep
+    driver-class-name: org.postgresql.Driver
+
+  data:
+    redis:
+      host: localhost
+      port: 6400
+      username: aideep
+      password: aideep123!
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.aideep.domain: DEBUG
+    com.aideep.global.exception.GlobalExceptionHandler: DEBUG
+    com.aideep.global.config.SecurityConfig: DEBUG

@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: aideep
+
+  data:
+    redis:
+      repositories:
+        enabled: false
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASS:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+  profiles:
+    default: local
+
+logging:
+  level:
+    root: INFO
+    com.aideep.global.exception.GlobalExceptionHandler: ERROR
+    com.aideep.global.config.SecurityConfig: ERROR
+    com.aideep.domain.auth: ERROR
+
+auth:
+  jwt-secret: ${JWT_SECRET:}
+  frontend-url: ${FRONTEND_URL:}
+  google-client-id: ${GOOGLE_CLIENT_ID:}
+  google-client-secret: ${GOOGLE_CLIENT_SECRET:}
+  google-callback-url: ${GOOGLE_CALLBACK_URL:}
+  google-authorize-url: https://accounts.google.com/o/oauth2/v2/auth
+  google-token-url: https://oauth2.googleapis.com/token
+  google-user-info-url: https://openidconnect.googleapis.com/v1/userinfo
+  mail-user: ${MAIL_USER:}
+  mail-pass: ${MAIL_PASS:}
+  master-user-ids: ${MASTER_USER_IDS:}
+  demo-secret: ${DEMO_SECRET:}
+  demo-workspace-id: ${DEMO_WORKSPACE_ID:}
