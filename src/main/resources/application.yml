@@ -45,3 +45,8 @@ auth:
   master-user-ids: ${MASTER_USER_IDS:}
   demo-secret: ${DEMO_SECRET:}
   demo-workspace-id: ${DEMO_WORKSPACE_ID:}
+
+recall:
+  api-url: ${RECALL_API_URL:https://us-east-1.recall.ai/api/v1/bot/}
+  api-key: ${RECALL_API_KEY:}
+  bot-name: ${RECALL_BOT_NAME:AIDEEP Meeting Notetaker}
