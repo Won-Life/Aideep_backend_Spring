@@ -50,3 +50,18 @@ recall:
   api-url: ${RECALL_API_URL:https://us-east-1.recall.ai/api/v1/bot/}
   api-key: ${RECALL_API_KEY:}
   bot-name: ${RECALL_BOT_NAME:AIDEEP Meeting Notetaker}
+
+node:
+  events:
+    enabled: ${NODE_EVENTS_ENABLED:true}
+    stream-key: ${NODE_EVENTS_STREAM_KEY:onnode:ai:commands:v1}
+    dlq-stream-key: ${NODE_EVENTS_DLQ_STREAM_KEY:onnode:ai:commands:dlq:v1}
+    retry-key: ${NODE_EVENTS_RETRY_KEY:onnode:ai:commands:retries:v1}
+    consumer-group: ${NODE_EVENTS_CONSUMER_GROUP:aideep-node-command-workers-v1}
+    consumer-name: ${NODE_EVENTS_CONSUMER_NAME:}
+    batch-size: ${NODE_EVENTS_BATCH_SIZE:1}
+    block-timeout: ${NODE_EVENTS_BLOCK_TIMEOUT:2s}
+    reclaim-min-idle: ${NODE_EVENTS_RECLAIM_MIN_IDLE:30s}
+    reclaim-interval: ${NODE_EVENTS_RECLAIM_INTERVAL:30s}
+    max-attempts: ${NODE_EVENTS_MAX_ATTEMPTS:5}
+    dlq-max-length: ${NODE_EVENTS_DLQ_MAX_LENGTH:100000}
