@@ -8,6 +8,17 @@ spring:
     password: aideep
     driver-class-name: org.postgresql.Driver
 
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    clean-disabled: true
+
+  jpa:
+    open-in-view: true
+    hibernate:
+      ddl-auto: update
+
   data:
     redis:
       host: localhost

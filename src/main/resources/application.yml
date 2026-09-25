@@ -6,10 +6,6 @@ spring:
     redis:
       repositories:
         enabled: false
-  jpa:
-    open-in-view: false
-    hibernate:
-      ddl-auto: none
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}

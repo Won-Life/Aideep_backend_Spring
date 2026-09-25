@@ -27,7 +27,11 @@ public abstract class BaseEntity {
     }
 
     protected BaseEntity(Instant now) {
-        id = UUID.randomUUID();
+        this(UUID.randomUUID(), now);
+    }
+
+    protected BaseEntity(UUID id, Instant now) {
+        this.id = id;
         createdAt = now;
         updatedAt = now;
     }

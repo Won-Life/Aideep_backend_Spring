@@ -78,6 +78,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @Testcontainers
 @SpringBootTest(properties = {
+        "spring.flyway.enabled=false",
         "auth.jwt-secret=local-test-secret-at-least-32-bytes-long",
         "auth.frontend-url=http://frontend.test",
         "auth.google-client-id=test-client", "auth.google-client-secret=test-client-secret",
@@ -100,7 +101,7 @@ class AuthIntegrationTest {
     static final String LEGACY_HASH = "$2b$10$vKyepNKyNWJn1.C67gn1hOEi1.M.5LkX5I7LZ375G5QfChf.7eZxG";
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine").withInitScript(
-            "domain/auth/auth-schema.sql");
+            "global/aideep-schema.sql");
     @Container
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
     static final FakeIdentityServers EXTERNAL = new FakeIdentityServers();

@@ -2,6 +2,17 @@ my:
   nickname: PROD
 
 spring:
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    clean-disabled: true
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
@@ -18,3 +29,9 @@ spring:
         enabled: ${REDIS_SSL:false}
 server:
   port: ${PORT:8080}
+
+logging:
+  level:
+    com.aideep.domain: INFO
+    com.aideep.global.exception.GlobalExceptionHandler: DEBUG
+    com.aideep.global.config.SecurityConfig: DEBUG

@@ -20,7 +20,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Testcontainers
-@DataJpaTest(properties = "spring.jpa.hibernate.ddl-auto=validate")
+@DataJpaTest(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=false"})
 class WorkspaceRepositoryIntegrationTest {
 
     private static final UUID USER_ID = UUID.fromString("11111111-1111-4111-8111-111111111111");
@@ -28,7 +28,7 @@ class WorkspaceRepositoryIntegrationTest {
 
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17-alpine")
-            .withInitScript("domain/auth/auth-schema.sql");
+            .withInitScript("global/aideep-schema.sql");
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry dynamicPropertyRegistry) {
