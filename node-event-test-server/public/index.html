@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>노드 이벤트 테스트</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #f4f6fa; color: #202c40;
+            font-family: system-ui, sans-serif; line-height: 1.6; }
+        main { max-width: 1100px; margin: 40px auto; padding: 0 20px; }
+        h1 { margin-bottom: 4px; } h2 { margin-top: 0; font-size: 19px; }
+        p { color: #546176; } .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        section { background: white; border: 1px solid #dce2eb; border-radius: 14px; padding: 24px; }
+        .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+        button { border: 1px solid #c7d2e4; background: #edf3ff; color: #254c92; padding: 10px 14px;
+            border-radius: 8px; cursor: pointer; font: inherit; font-size: 14px; }
+        button.primary { background: #285dd0; color: white; border-color: #285dd0; }
+        button:disabled { opacity: .5; cursor: wait; }
+        textarea { width: 100%; min-height: 310px; padding: 14px; border: 1px solid #bcc8db;
+            border-radius: 8px; font: 14px/1.6 monospace; resize: vertical; }
+        pre { background: #152136; color: #d9e8ff; padding: 16px; border-radius: 8px;
+            overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 550px; font-size: 13px; }
+        label { display: block; margin: 12px 0 6px; font-weight: 600; }
+        .note { background: #fff5dc; padding: 12px 16px; border-radius: 8px; font-size: 14px; }
+        #status { min-height: 28px; font-weight: 600; } .error { color: #b42318; }
+        @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } main { margin: 20px auto; } }
+    </style>
+</head>
+<body>
+<main>
+    <h1>노드 이벤트 테스트</h1>
+    <p>이벤트를 Redis Stream에 발행하고 Spring 워커의 처리 상태를 확인합니다.</p>
+    <p class="note">현재 정상 이벤트는 Pending에 보류됩니다. 잘못된 JSON·미지원 버전은 DLQ로 이동합니다.
+        발행 성공은 노드 저장 완료를 뜻하지 않습니다. 조회 버튼으로 처리 결과를 확인하세요.</p>
+    <div class="grid">
+        <section>
+            <h2>1. 이벤트 발행</h2>
+            <div class="buttons">
+                <button type="button" data-sample="create">생성 샘플</button>
+                <button type="button" data-sample="patch">수정 샘플</button>
+                <button type="button" data-sample="version">미지원 버전</button>
+                <button type="button" data-sample="invalid">잘못된 JSON</button>
+            </div>
+            <label for="event">Stream의 data에 넣을 JSON</label>
+            <textarea id="event" spellcheck="false" aria-describedby="editor-help"></textarea>
+            <p id="editor-help">샘플 버튼은 내용을 채우기만 합니다. 발행 버튼을 누르면 입력 문자열을 그대로 보냅니다.
+                같은 내용을 다시 발행하면 eventId도 동일합니다.</p>
+            <button class="primary" id="publish" type="button">이벤트 발행</button>
+        </section>
+        <section>
+            <h2>2. 상태 조회 및 응답</h2>
+            <div class="buttons">
+                <button type="button" data-path="/health">Redis 연결</button>
+                <button type="button" data-path="/pending">Pending 조회</button>
+                <button type="button" data-path="/dlq">DLQ 조회</button>
+            </div>
+            <p>Pending은 최대 50건, DLQ는 최근 50건을 표시합니다. 조회는 메시지를 ACK하거나 삭제하지 않습니다.</p>
+            <div id="status" role="status" aria-live="polite">요청을 선택하세요.</div>
+            <pre id="response">아직 응답이 없습니다.</pre>
+        </section>
+    </div>
+</main>
+<script src="/app.js" defer></script>
+</body>
+</html>

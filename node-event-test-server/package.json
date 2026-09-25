@@ -1,0 +1,8 @@
+{
+  "name": "node-event-test-server",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node --env-file-if-exists=.env server.js" },
+  "engines": { "node": ">=22" },
+  "dependencies": { "express": "^5.1.0", "redis": "^5.0.0" }
+}

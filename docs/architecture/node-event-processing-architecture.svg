@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1120" viewBox="0 0 1800 1120" role="img"
+     aria-labelledby="title description">
+    <title id="title">AIDEEP 노드 이벤트 소비 아키텍처</title>
+    <desc id="description">AI 서버가 발행한 Redis Stream 이벤트를 백엔드 워커가 순차 처리하고 Pending, 재시도,
+        DLQ, ACK로 분기하는 구조</desc>
+    <defs>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#14213d" flood-opacity="0.10"/>
+        </filter>
+        <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+            <path d="M 0 0 L 12 6 L 0 12 Z" fill="#526075"/>
+        </marker>
+        <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+            <path d="M 0 0 L 12 6 L 0 12 Z" fill="#2c77c7"/>
+        </marker>
+        <marker id="arrowAmber" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+            <path d="M 0 0 L 12 6 L 0 12 Z" fill="#b26a00"/>
+        </marker>
+        <style>
+            text { font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #172033; }
+            .title { font-size: 36px; font-weight: 750; }
+            .subtitle { font-size: 18px; fill: #667085; }
+            .section-title { font-size: 20px; font-weight: 700; }
+            .node-title { font-size: 17px; font-weight: 700; text-anchor: middle; }
+            .node-detail { font-size: 14px; fill: #5d6678; text-anchor: middle; }
+            .edge-label { font-size: 14px; font-weight: 650; fill: #526075; text-anchor: middle; }
+            .small { font-size: 13px; fill: #667085; }
+            .flow { fill: none; stroke: #526075; stroke-width: 2.5; marker-end: url(#arrow); }
+            .flow-blue { fill: none; stroke: #2c77c7; stroke-width: 2.5; marker-end: url(#arrowBlue); }
+            .flow-amber { fill: none; stroke: #b26a00; stroke-width: 2.5; marker-end: url(#arrowAmber); }
+            .future { fill: none; stroke: #98a2b3; stroke-width: 2.5; stroke-dasharray: 9 8; marker-end: url(#arrow); }
+            .reclaim { fill: none; stroke: #b26a00; stroke-width: 2.5; stroke-dasharray: 9 8;
+                marker-end: url(#arrowAmber); }
+        </style>
+    </defs>
+
+    <rect width="1800" height="1120" fill="#f7f9fc"/>
+    <text class="title" x="80" y="70">AIDEEP 노드 이벤트 소비 아키텍처</text>
+    <text class="subtitle" x="80" y="105">Redis Stream 수신부터 순차 처리, Pending, 재시도, DLQ, ACK까지의 현재 구현</text>
+
+    <!-- Main ingress -->
+    <rect x="80" y="165" width="210" height="110" rx="18" fill="#ffffff" stroke="#8091a7" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="185" y="210">AI Server</text>
+    <text class="node-detail" x="185" y="239">노드 명령 생산자</text>
+
+    <path class="flow-blue" d="M 290 220 H 390"/>
+    <text class="edge-label" x="340" y="202">XADD</text>
+
+    <g filter="url(#shadow)">
+        <ellipse cx="520" cy="182" rx="130" ry="24" fill="#dceeff" stroke="#3d91d8" stroke-width="2"/>
+        <rect x="390" y="182" width="260" height="90" fill="#dceeff" stroke="#3d91d8" stroke-width="2"/>
+        <ellipse cx="520" cy="272" rx="130" ry="24" fill="#c9e4fb" stroke="#3d91d8" stroke-width="2"/>
+        <ellipse cx="520" cy="182" rx="130" ry="24" fill="#e8f5ff" stroke="#3d91d8" stroke-width="2"/>
+    </g>
+    <text class="node-title" x="520" y="221">명령 Stream</text>
+    <text class="node-detail" x="520" y="246">onnode:ai:commands:v1</text>
+
+    <path class="flow-blue" d="M 650 220 H 750"/>
+    <text class="edge-label" x="700" y="202">XREADGROUP</text>
+
+    <rect x="750" y="165" width="260" height="110" rx="18" fill="#ffffff" stroke="#6c7d91" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="880" y="205">Stream Listener</text>
+    <text class="node-detail" x="880" y="232">batch 1 · manual ACK</text>
+    <text class="node-detail" x="880" y="253">인스턴스별 단일 poll thread</text>
+
+    <path class="flow" d="M 1010 220 H 1110"/>
+
+    <rect x="1110" y="165" width="310" height="110" rx="18" fill="#ede5ff" stroke="#8057c7" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="1265" y="205">RedisNodeEventConsumer</text>
+    <text class="node-detail" x="1265" y="232">그룹 초기화 · 직렬화 경계</text>
+    <text class="node-detail" x="1265" y="253">ACK · reclaim · DLQ 조정</text>
+
+    <!-- Worker section -->
+    <rect x="80" y="350" width="1340" height="350" rx="24" fill="#f2edff" stroke="#9a7ad2" stroke-width="2"/>
+    <text class="section-title" x="115" y="392">AIDEEP 서비스 워커</text>
+
+    <path class="flow" d="M 1265 275 V 330 H 270 V 430"/>
+
+    <rect x="150" y="430" width="240" height="105" rx="16" fill="#ffffff" stroke="#8057c7" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="270" y="470">NodeEventWorker</text>
+    <text class="node-detail" x="270" y="497">파싱 및 결과 분류</text>
+
+    <path class="flow" d="M 390 482 H 470"/>
+
+    <rect x="470" y="430" width="230" height="105" rx="16" fill="#ffffff" stroke="#8057c7" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="585" y="470">NodeEventParser</text>
+    <text class="node-detail" x="585" y="497">version · UUID · Instant</text>
+
+    <path class="flow" d="M 700 482 H 760"/>
+
+    <polygon points="850,420 940,482 850,544 760,482" fill="#fff0c9" stroke="#d28b18" stroke-width="2"
+             filter="url(#shadow)"/>
+    <text class="node-title" x="850" y="477">Envelope</text>
+    <text class="node-detail" x="850" y="499">유효?</text>
+
+    <path class="flow" d="M 940 482 H 1005"/>
+    <text class="edge-label" x="972" y="463">정상</text>
+
+    <rect x="1005" y="430" width="260" height="105" rx="16" fill="#ffffff" stroke="#8057c7" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="1135" y="469">NodeCommandProcessor</text>
+    <text class="node-detail" x="1135" y="496">현재 기본값: DEFERRED</text>
+
+    <path class="flow" d="M 1265 482 H 1290"/>
+
+    <polygon points="1355,430 1420,482 1355,534 1290,482" fill="#ffffff" stroke="#8057c7" stroke-width="2"
+             filter="url(#shadow)"/>
+    <text class="node-title" x="1355" y="477">처리</text>
+    <text class="node-detail" x="1355" y="499">결과</text>
+
+    <!-- Permanent error -->
+    <path class="flow" d="M 850 544 V 690 H 780 V 796"/>
+    <text class="edge-label" x="812" y="610">영구 오류</text>
+
+    <!-- Result branches -->
+    <path class="flow-blue" d="M 1355 430 V 365 H 1535 V 420"/>
+    <text class="edge-label" x="1465" y="352">PROCESSED</text>
+
+    <rect x="1450" y="420" width="170" height="90" rx="45" fill="#d8f4dc" stroke="#4ca65b" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="1535" y="460">XACK</text>
+    <text class="node-detail" x="1535" y="483">처리 완료</text>
+
+    <path class="flow-amber" d="M 1355 534 V 615 H 1125 V 760"/>
+    <text class="edge-label" x="1235" y="604">DEFERRED</text>
+
+    <path class="flow" d="M 1388 508 L 1430 560 H 1690 V 715 H 1340 V 796"/>
+    <text class="edge-label" x="1535" y="547">RETRYABLE</text>
+
+    <!-- Redis state -->
+    <rect x="80" y="760" width="1540" height="235" rx="24" fill="#eaf5ff" stroke="#5b9cd6" stroke-width="2"/>
+    <text class="section-title" x="115" y="802">Redis 처리 상태</text>
+
+    <g filter="url(#shadow)">
+        <ellipse cx="1125" cy="818" rx="125" ry="22" fill="#fff2c9" stroke="#d28b18" stroke-width="2"/>
+        <rect x="1000" y="818" width="250" height="85" fill="#fff2c9" stroke="#d28b18" stroke-width="2"/>
+        <ellipse cx="1125" cy="903" rx="125" ry="22" fill="#ffe7a8" stroke="#d28b18" stroke-width="2"/>
+        <ellipse cx="1125" cy="818" rx="125" ry="22" fill="#fff8df" stroke="#d28b18" stroke-width="2"/>
+    </g>
+    <text class="node-title" x="1125" y="852">Pending Entries</text>
+    <text class="node-detail" x="1125" y="878">ACK 없이 보존</text>
+
+    <g filter="url(#shadow)">
+        <ellipse cx="1340" cy="818" rx="75" ry="22" fill="#ffffff" stroke="#3d91d8" stroke-width="2"/>
+        <rect x="1265" y="818" width="150" height="85" fill="#ffffff" stroke="#3d91d8" stroke-width="2"/>
+        <ellipse cx="1340" cy="903" rx="75" ry="22" fill="#dceeff" stroke="#3d91d8" stroke-width="2"/>
+        <ellipse cx="1340" cy="818" rx="75" ry="22" fill="#ffffff" stroke="#3d91d8" stroke-width="2"/>
+    </g>
+    <text class="node-title" x="1340" y="850">Retry Hash</text>
+    <text class="node-detail" x="1340" y="874">entryId별 횟수</text>
+
+    <polygon points="1510,810 1580,860 1510,910 1440,860" fill="#fff0c9" stroke="#d28b18" stroke-width="2"
+             filter="url(#shadow)"/>
+    <text class="node-title" x="1510" y="855">5회</text>
+    <text class="node-detail" x="1510" y="877">도달?</text>
+
+    <path class="flow" d="M 1415 860 H 1440"/>
+    <path class="flow-amber" d="M 1510 910 V 960 H 1250 V 915"/>
+    <text class="edge-label" x="1380" y="950">아니오</text>
+
+    <g filter="url(#shadow)">
+        <ellipse cx="780" cy="818" rx="125" ry="22" fill="#ffe2dc" stroke="#e4624a" stroke-width="2"/>
+        <rect x="655" y="818" width="250" height="85" fill="#ffe2dc" stroke="#e4624a" stroke-width="2"/>
+        <ellipse cx="780" cy="903" rx="125" ry="22" fill="#ffcfc5" stroke="#e4624a" stroke-width="2"/>
+        <ellipse cx="780" cy="818" rx="125" ry="22" fill="#fff0ed" stroke="#e4624a" stroke-width="2"/>
+    </g>
+    <text class="node-title" x="780" y="850">DLQ Stream</text>
+    <text class="node-detail" x="780" y="874">원본과 실패 정보 보존</text>
+
+    <path class="flow" d="M 1440 860 H 905"/>
+    <text class="edge-label" x="1175" y="844">예</text>
+
+    <path class="flow-blue" d="M 655 860 H 540"/>
+    <text class="edge-label" x="596" y="844">기록 성공</text>
+
+    <rect x="360" y="815" width="180" height="90" rx="45" fill="#d8f4dc" stroke="#4ca65b" stroke-width="2"
+          filter="url(#shadow)"/>
+    <text class="node-title" x="450" y="855">원본 XACK</text>
+    <text class="node-detail" x="450" y="879">DLQ 실패 시 미ACK</text>
+
+    <path class="reclaim" d="M 1000 860 H 955 V 720 H 1265 V 275"/>
+    <text class="edge-label" x="1100" y="710">processor 준비 후 reclaim</text>
+
+    <!-- Future scope -->
+    <rect x="1465" y="165" width="255" height="110" rx="18" fill="#edf0f4" stroke="#98a2b3" stroke-width="2"
+          stroke-dasharray="8 7"/>
+    <text class="node-title" x="1592" y="202">실제 노드 처리</text>
+    <text class="node-detail" x="1592" y="229">다음 작업 범위</text>
+    <text class="node-detail" x="1592" y="251">DB 멱등성 · 트랜잭션</text>
+    <path class="future" d="M 1135 430 V 315 H 1592 V 275"/>
+    <text class="edge-label" x="1455" y="303">다음 작업</text>
+
+    <text class="small" x="80" y="1065">현재 보장: 인스턴스별 순차 처리 · at-least-once 전달 · 성공 또는 DLQ 기록 이후 ACK</text>
+    <text class="small" x="80" y="1090">현재 제외: 실제 Node 생성/수정 · PostgreSQL 처리 이력 · workspace/node 비즈니스 검증</text>
+</svg>

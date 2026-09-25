@@ -21,10 +21,8 @@
 ## 포맷
 
 - `.idea/codeStyles/Project.xml`에 저장한 SofteerStyle을 기준으로 한다. 프로젝트 코드 스타일을 사용하며 개인 IDE 설정으로 덮어쓰지 않는다.
-- 직접 작성한 소스, 테스트, 설정, 문서에 해당 파일 형식의 IntelliJ 포맷을 적용한다. 생성 파일, Gradle Wrapper, 바이너리, 빌드 산출물은 제외한다.
 - Java는 공백 4칸 들여쓰기, 기본 줄 너비 120자를 사용한다. 줄바꿈, 연속 행 정렬, 중괄호, 빈 줄과 주석 처리는 공유 설정을 따른다. 문자열 리터럴이나 외부 계약을 줄 너비에 맞추려고 변경하지 않는다.
 - import는 static 그룹을 먼저 두고 빈 줄로 일반 그룹과 구분하며 각 그룹을 정렬한다. 와일드카드 import를 사용하지 않는다.
-- Google Java Format 등 다른 포맷터로 대체하지 않는다. IntelliJ의 Reformat Code와 Optimize Imports를 사용한다.
 
 ## 변수와 주입 인자 이름
 
@@ -37,6 +35,26 @@
 - 동일 타입 객체를 구분해야 하면 역할 접두어를 붙인다. 예: `deniedMockMvc`, `googleHttpServer`.
 - 데이터 값과 DTO·엔티티 필드는 의미를 나타내는 이름을 유지한다. `email`, `userId`, `accessToken` 등을 단순히 타입 이름으로 바꾸지 않는다.
 - 이 규칙은 메서드 이름을 클래스 이름으로 바꾸라는 뜻이 아니다. 메서드는 동작을 표현하는 기존 이름을 유지한다.
+
+## 도메인 오류
+
+- 도메인에서 처리 가능한 오류는 해당 도메인의 `exception` 패키지에 `ErrorCode`를 구현한 enum으로 정의하고,
+  `BusinessException`에 담아 전달한다. 비즈니스 오류마다 별도의 `RuntimeException` 하위 클래스를 만들지 않는다.
+- 새 오류 코드의 문자열 값은 대문자 도메인 이름과 고유한 숫자를 하이픈으로 연결한다. 예: `NODE-001`.
+  enum 상수 이름은 오류의 의미를 나타내고, HTTP 상태와 사유는 enum에 함께 정의한다.
+- 오류 코드가 HTTP 응답이나 Redis DLQ 같은 외부 계약에 사용되면 양쪽에 같은 값을 사용한다. 기존 코드를 바꿀 때는
+  소비자, 테스트, 문서를 함께 갱신하고 이미 저장된 DLQ 항목의 이전 코드도 운영상 구분할 수 있게 기록한다.
+- Redis 이벤트처럼 영구 실패와 재시도를 구분하는 처리 경계에서는 도메인 오류 코드로 분류한다. 파싱 가능한
+  `eventId`·`eventType`과 원인 정보는 `BusinessException.data`에 보존한다.
+
+## 노드 실시간 이벤트
+
+- AI 노드 명령은 Redis Stream에서 소비해 DB에 반영한다. 커밋 후 기존 Redis 이벤트 버스의
+  `aideep.realtime.v1` 채널에 `WORKSPACE_EVENT`를 발행하고, 실제 WebSocket 전송은 `aideep-ws`가 담당한다.
+- 롤백·검증 실패·중복 명령에는 실시간 이벤트를 발행하지 않는다. 캐시 삭제와 이벤트 버스 발행 실패는 각각
+  기록하되, 이미 커밋된 DB 처리와 Stream ACK를 실패로 되돌리지 않는다.
+- 이벤트 버스의 envelope와 `NODE_CREATE`·`NODE_UPDATE` payload는 기존 API·WS 서버 계약을 기준으로 맞춘다.
+  계약 변경 시 양쪽 서버, 테스트, 관련 문서를 함께 확인한다.
 
 ## 테스트 구성
 
@@ -81,15 +99,4 @@
   그 이유와 수동 검증 방법을 결과에 명시한다.
 - `./gradlew test`로 컴파일과 기존 테스트를 검증한다. 통합 테스트는 Docker의 PostgreSQL·Redis 컨테이너와 로컬 테스트 서버를 사용한다. 실행하지 못한 테스트나 기존 실패는 명확히
   보고한다.
-- `git diff --check`로 공백 오류를 확인하고, 포맷을 재적용했을 때 추가 변경이 없는지 확인한다.
-- IntelliJ CLI 포맷 예시(macOS):
-
-  ```sh
-  "/Applications/IntelliJ IDEA.app/Contents/bin/format.sh" \
-    -s .idea/codeStyles/Project.xml -r \
-    -m '*.java,*.yml,*.sql,*.gradle,*.md,*.properties' \
-    src docs build.gradle settings.gradle AGENTS.md
-  ```
-
-  검증만 하려면 `-d`를 추가한다. IDE가 실행 중이면 별도 임시 디렉터리를 지정한 `IDEA_PROPERTIES` 파일의 `idea.config.path`, `idea.system.path`,
-  `idea.log.path`, `idea.plugins.path`로 CLI 실행 환경을 분리한다. 개인 경로와 임시 캐시는 저장소에 추가하지 않는다.
+- `git diff --check`로 공백 오류를 확인한다.
