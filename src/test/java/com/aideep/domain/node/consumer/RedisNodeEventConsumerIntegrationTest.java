@@ -3,11 +3,11 @@ package com.aideep.domain.node.consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aideep.domain.node.config.NodeEventProperties;
-import com.aideep.domain.node.service.DeferredNodeCommandProcessor;
 import com.aideep.domain.node.service.NodeCommandProcessingResult;
 import com.aideep.domain.node.service.NodeCommandProcessor;
 import com.aideep.domain.node.service.NodeEventParser;
 import com.aideep.domain.node.service.NodeEventWorker;
+import com.aideep.domain.node.support.DeferredNodeCommandProcessor;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -127,8 +127,21 @@ class RedisNodeEventConsumerIntegrationTest {
         assertThat(dlqRecords.getFirst().getValue())
                 .containsEntry("sourceStream", STREAM)
                 .containsEntry("data", "{")
-                .containsEntry("errorCode", "INVALID_JSON")
+                .containsEntry("errorCode", "NODE-001")
                 .containsEntry("attempts", "1");
+    }
+
+    @Test
+    void movesEntryWithoutDataToDlqWithNumericNodeCode() throws Exception {
+        stringRedisTemplate.<String, String>opsForStream().add(STREAM, Map.of("unexpected", "value"));
+        startConsumer(nodeEventEnvelope -> NodeCommandProcessingResult.PROCESSED, 5);
+
+        await(() -> streamSize(DLQ) == 1 && pendingCount() == 0);
+
+        var dlqRecord = stringRedisTemplate.<String, String>opsForStream()
+                .range(DLQ, Range.unbounded()).getFirst();
+        assertThat(dlqRecord.getValue()).containsEntry("errorCode", "NODE-010")
+                .containsEntry("failureCategory", "PERMANENT_FAILURE");
     }
 
     @Test

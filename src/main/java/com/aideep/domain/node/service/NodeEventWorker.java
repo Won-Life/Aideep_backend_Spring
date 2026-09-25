@@ -1,8 +1,9 @@
 package com.aideep.domain.node.service;
 
 import com.aideep.domain.node.dto.event.NodeEventEnvelope;
-import com.aideep.domain.node.exception.NodeEventParseException;
-import com.aideep.domain.node.exception.PermanentNodeEventProcessingException;
+import com.aideep.domain.node.dto.event.NodeEventErrorContext;
+import com.aideep.domain.node.exception.NodeError;
+import com.aideep.global.exception.BusinessException;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,14 +28,21 @@ public class NodeEventWorker {
                 return NodeEventWorkResult.deferred(nodeEventEnvelope);
             }
             throw new IllegalStateException("Node command processor returned no result");
-        } catch (NodeEventParseException exception) {
-            return NodeEventWorkResult.permanentFailure(null, exception.eventId(), exception.eventType(),
-                    exception.errorCode());
-        } catch (PermanentNodeEventProcessingException exception) {
-            return NodeEventWorkResult.permanentFailure(nodeEventEnvelope, nodeEventEnvelope.eventId().toString(),
-                    nodeEventEnvelope.eventType().name(), exception.errorCode());
+        } catch (BusinessException exception) {
+            if (!(exception.getErrorCode() instanceof NodeError nodeError)
+                    || nodeError == NodeError.PROCESSOR_FAILURE) {
+                return NodeEventWorkResult.retryableFailure(nodeEventEnvelope, NodeError.PROCESSOR_FAILURE.getCode(), exception);
+            }
+            if (nodeEventEnvelope != null) {
+                return NodeEventWorkResult.permanentFailure(nodeEventEnvelope, nodeEventEnvelope.eventId().toString(),
+                        nodeEventEnvelope.eventType().name(), exception.getErrorCode().getCode());
+            }
+            NodeEventErrorContext nodeEventErrorContext = exception.getData() instanceof NodeEventErrorContext context
+                    ? context : new NodeEventErrorContext(null, null, null);
+            return NodeEventWorkResult.permanentFailure(null, nodeEventErrorContext.eventId(),
+                    nodeEventErrorContext.eventType(), exception.getErrorCode().getCode());
         } catch (RuntimeException exception) {
-            return NodeEventWorkResult.retryableFailure(nodeEventEnvelope, "PROCESSOR_FAILURE", exception);
+            return NodeEventWorkResult.retryableFailure(nodeEventEnvelope, NodeError.PROCESSOR_FAILURE.getCode(), exception);
         }
     }
 

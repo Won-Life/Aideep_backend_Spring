@@ -1,8 +1,10 @@
 package com.aideep.domain.node.service;
 
 import com.aideep.domain.node.dto.event.NodeEventEnvelope;
+import com.aideep.domain.node.dto.event.NodeEventErrorContext;
 import com.aideep.domain.node.dto.event.NodeEventType;
-import com.aideep.domain.node.exception.NodeEventParseException;
+import com.aideep.domain.node.exception.NodeError;
+import com.aideep.global.exception.BusinessException;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.UUID;
@@ -25,7 +27,10 @@ public class NodeEventParser {
         try {
             root = objectMapper.readTree(data);
         } catch (RuntimeException exception) {
-            throw new NodeEventParseException("INVALID_JSON", "Node event data is not valid JSON", exception);
+            BusinessException businessException = failure(NodeError.INVALID_JSON,
+                    "Node event data is not valid JSON", null, null);
+            businessException.initCause(exception);
+            throw businessException;
         }
         if (root == null || !root.isObject()) {
             throw invalidEnvelope("Node event must be a JSON object", null, null);
@@ -35,7 +40,7 @@ public class NodeEventParser {
         String eventTypeValue = textValue(root, "eventType");
         int version = integerValue(root, "version", eventIdValue, eventTypeValue);
         if (version != SUPPORTED_VERSION) {
-            throw new NodeEventParseException("UNSUPPORTED_VERSION", "Unsupported node event version: " + version,
+            throw failure(NodeError.UNSUPPORTED_VERSION, "Unsupported node event version: " + version,
                     eventIdValue, eventTypeValue);
         }
 
@@ -91,7 +96,7 @@ public class NodeEventParser {
         try {
             return NodeEventType.valueOf(value);
         } catch (IllegalArgumentException exception) {
-            throw new NodeEventParseException("UNSUPPORTED_EVENT_TYPE", "Unsupported node event type: " + value,
+            throw failure(NodeError.UNSUPPORTED_EVENT_TYPE, "Unsupported node event type: " + value,
                     eventId, value);
         }
     }
@@ -101,7 +106,11 @@ public class NodeEventParser {
         return value != null && value.isString() ? value.asString() : null;
     }
 
-    private NodeEventParseException invalidEnvelope(String message, String eventId, String eventType) {
-        return new NodeEventParseException("INVALID_ENVELOPE", message, eventId, eventType);
+    private BusinessException failure(NodeError nodeError, String detail, String eventId, String eventType) {
+        return new BusinessException(nodeError, new NodeEventErrorContext(eventId, eventType, detail));
+    }
+
+    private BusinessException invalidEnvelope(String message, String eventId, String eventType) {
+        return failure(NodeError.INVALID_ENVELOPE, message, eventId, eventType);
     }
 }

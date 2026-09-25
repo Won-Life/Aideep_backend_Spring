@@ -3,8 +3,9 @@ package com.aideep.domain.node.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.aideep.domain.node.dto.event.NodeEventErrorContext;
 import com.aideep.domain.node.dto.event.NodeEventType;
-import com.aideep.domain.node.exception.NodeEventParseException;
+import com.aideep.global.exception.BusinessException;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -33,37 +34,40 @@ class NodeEventParserTest {
         String data = validEvent("NODE_CREATE_REQUESTED").replace("\"version\": 1", "\"version\": 2");
 
         assertThatThrownBy(() -> nodeEventParser.parse(data))
-                .isInstanceOfSatisfying(NodeEventParseException.class, exception -> {
-                    assertThat(exception.errorCode()).isEqualTo("UNSUPPORTED_VERSION");
-                    assertThat(exception.eventId()).isEqualTo(EVENT_ID);
-                    assertThat(exception.eventType()).isEqualTo("NODE_CREATE_REQUESTED");
+                .isInstanceOfSatisfying(BusinessException.class, exception -> {
+                    assertThat(exception.getErrorCode().getCode()).isEqualTo("NODE-003");
+                    assertThat(((NodeEventErrorContext) exception.getData()).eventId()).isEqualTo(EVENT_ID);
+                    assertThat(((NodeEventErrorContext) exception.getData()).eventType()).isEqualTo("NODE_CREATE_REQUESTED");
                 });
     }
 
     @Test
     void rejectsUnsupportedEventType() {
         assertThatThrownBy(() -> nodeEventParser.parse(validEvent("NODE_DELETE_REQUESTED")))
-                .isInstanceOfSatisfying(NodeEventParseException.class,
-                        exception -> assertThat(exception.errorCode()).isEqualTo("UNSUPPORTED_EVENT_TYPE"));
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode().getCode()).isEqualTo("NODE-004"));
     }
 
     @Test
     void rejectsMalformedJsonAndInvalidEnvelopeFields() {
         assertThatThrownBy(() -> nodeEventParser.parse("{"))
-                .isInstanceOfSatisfying(NodeEventParseException.class,
-                        exception -> assertThat(exception.errorCode()).isEqualTo("INVALID_JSON"));
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> {
+                            assertThat(exception.getErrorCode().getCode()).isEqualTo("NODE-001");
+                            assertThat(exception.getCause()).isNotNull();
+                        });
         assertThatThrownBy(() -> nodeEventParser.parse(validEvent("NODE_PATCH_REQUESTED")
                         .replace(WORKSPACE_ID, "not-a-uuid")))
-                .isInstanceOfSatisfying(NodeEventParseException.class,
-                        exception -> assertThat(exception.errorCode()).isEqualTo("INVALID_ENVELOPE"));
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode().getCode()).isEqualTo("NODE-002"));
         assertThatThrownBy(() -> nodeEventParser.parse(validEvent("NODE_PATCH_REQUESTED")
                         .replace(WORKSPACE_ID, "2-2-2-2-2")))
-                .isInstanceOfSatisfying(NodeEventParseException.class,
-                        exception -> assertThat(exception.errorCode()).isEqualTo("INVALID_ENVELOPE"));
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode().getCode()).isEqualTo("NODE-002"));
         assertThatThrownBy(() -> nodeEventParser.parse(validEvent("NODE_PATCH_REQUESTED")
                         .replace("\"payload\": {\"title\": \"AI meeting summary\"}", "\"payload\": null")))
-                .isInstanceOfSatisfying(NodeEventParseException.class,
-                        exception -> assertThat(exception.errorCode()).isEqualTo("INVALID_ENVELOPE"));
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getErrorCode().getCode()).isEqualTo("NODE-002"));
     }
 
     private String validEvent(String eventType) {

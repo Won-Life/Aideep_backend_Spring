@@ -2,6 +2,7 @@ package com.aideep.domain.node.consumer;
 
 import com.aideep.domain.node.config.NodeEventConfiguration;
 import com.aideep.domain.node.config.NodeEventProperties;
+import com.aideep.domain.node.exception.NodeError;
 import com.aideep.domain.node.service.NodeEventWorkResult;
 import com.aideep.domain.node.service.NodeEventWorker;
 import java.time.Clock;
@@ -161,7 +162,7 @@ public class RedisNodeEventConsumer implements SmartLifecycle {
     private synchronized void handleRecord(MapRecord<String, String, String> record) {
         String data = record.getValue().get("data");
         NodeEventWorkResult result = data == null
-                ? NodeEventWorkResult.permanentFailure(null, null, null, "INVALID_STREAM_ENTRY")
+                ? NodeEventWorkResult.permanentFailure(null, null, null, NodeError.INVALID_STREAM_ENTRY.getCode())
                 : nodeEventWorker.process(data);
         switch (result.status()) {
             case PROCESSED -> acknowledge(record, result, "processed");
