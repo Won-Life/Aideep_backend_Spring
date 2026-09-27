@@ -1,0 +1,12 @@
+services:
+  aideep-app-spring:
+    build:
+      context: .
+    image: aideep-app-spring:latest
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      PORT: 8080
+    ports:
+      - "8080:8080"
