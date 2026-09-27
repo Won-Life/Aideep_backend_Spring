@@ -22,3 +22,7 @@ docker compose down
 빌드 시 테스트는 실행하지 않으므로 별도로 `./gradlew test`를 실행합니다. 메일, OAuth, Recall 기능을 사용한다면
 해당 환경 변수도 `.env`에 설정합니다. 설정 키는 `src/main/resources/application.yml`과
 `application-prod.yml`에서 확인할 수 있습니다.
+
+이미지에는 Datadog Java Agent도 포함됩니다. Compose 실행 전에 `.env`의 `DD_AGENT_HOST`를
+컨테이너에서 접근 가능한 기존 Agent 주소로 설정하세요. APM·Actuator 메트릭 연결과 검증 방법은
+[Datadog 운영 문서](datadog.md)를 참고하세요.

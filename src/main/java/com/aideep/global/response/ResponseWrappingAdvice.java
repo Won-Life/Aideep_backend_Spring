@@ -18,6 +18,12 @@ public class ResponseWrappingAdvice implements ResponseBodyAdvice<Object> {
     @Override
     public boolean supports(MethodParameter returnType,
                             Class<? extends HttpMessageConverter<?>> converterType) {
+        // Actuator는 모니터링 도구가 사용하는 원본 응답 형식을 유지한다.
+        if (returnType.getContainingClass().getName().startsWith("org.springframework.boot.actuate.")
+                || returnType.getContainingClass().getName()
+                        .startsWith("org.springframework.boot.webmvc.actuate.endpoint.web.")) {
+            return false;
+        }
         // springdoc이 제공하는 /v3/api-docs 등은 자체 스키마를 그대로 내보내야 Swagger UI가 동작한다.
         if (returnType.getContainingClass().getName().startsWith("org.springdoc")) {
             return false;

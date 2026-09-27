@@ -8,5 +8,14 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       PORT: 8080
+      DD_TRACE_ENABLED: ${DD_TRACE_ENABLED:-true}
+      DD_RUNTIME_METRICS_ENABLED: ${DD_RUNTIME_METRICS_ENABLED:-true}
+      DD_METRICS_ENABLED: ${DD_METRICS_ENABLED:-true}
+      DD_SERVICE: ${DD_SERVICE:-aideep}
+      DD_ENV: ${DD_ENV:-prod}
+      DD_VERSION: ${DD_VERSION:-0.0.1-SNAPSHOT}
+      DD_AGENT_HOST: ${DD_AGENT_HOST:?Set DD_AGENT_HOST to a reachable Datadog Agent address}
+      DD_TRACE_AGENT_PORT: ${DD_TRACE_AGENT_PORT:-8126}
+      DD_DOGSTATSD_PORT: ${DD_DOGSTATSD_PORT:-8125}
     ports:
       - "8080:8080"

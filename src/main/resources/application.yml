@@ -61,3 +61,27 @@ node:
     reclaim-interval: ${NODE_EVENTS_RECLAIM_INTERVAL:30s}
     max-attempts: ${NODE_EVENTS_MAX_ATTEMPTS:5}
     dlq-max-length: ${NODE_EVENTS_DLQ_MAX_LENGTH:100000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+  metrics:
+    tags:
+      service: ${DD_SERVICE:aideep}
+      env: ${DD_ENV:${SPRING_PROFILES_ACTIVE:local}}
+      version: ${DD_VERSION:@projectVersion@}
+  statsd:
+    metrics:
+      export:
+        enabled: ${DD_METRICS_ENABLED:false}
+        flavor: datadog
+        host: ${DD_AGENT_HOST:localhost}
+        port: ${DD_DOGSTATSD_PORT:8125}
+        protocol: udp
+        polling-frequency: 10s

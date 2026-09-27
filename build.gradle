@@ -19,6 +19,8 @@ repositories {
 }
 
 dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-statsd'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -39,6 +41,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation 'io.micrometer:micrometer-registry-statsd'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'org.testcontainers:testcontainers-postgresql'
     testAnnotationProcessor 'org.projectlombok:lombok'
@@ -50,4 +53,11 @@ tasks.named('test') {
 
 tasks.named('bootJar') {
     archiveFileName = 'app.jar'
+}
+
+tasks.named('processResources') {
+    inputs.property('applicationVersion', project.version.toString())
+    filesMatching('application.yml') {
+        filter { line -> line.replace('@projectVersion@', project.version.toString()) }
+    }
 }
