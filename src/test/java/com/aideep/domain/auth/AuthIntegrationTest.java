@@ -313,11 +313,18 @@ class AuthIntegrationTest {
                 status().isCreated());
         assertThat(redisAuthStore.get("auth:new@example.com")).isNull();
         assertThat(stringRedisTemplate.getExpire("verified:new@example.com")).isBetween(595L, 600L);
-        SignupRequest signup = new SignupRequest("new@example.com", "new-password");
+        SignupRequest signup = new SignupRequest("new@example.com", "new-password", true, true, true);
         postJson("/signup", signup).andExpect(status().isCreated()).andExpect(jsonPath("$.success").value("회원가입 성공"));
         assertThat(passwordEncoder.matches("new-password",
                 authUserRepository.findByEmail("new@example.com").orElseThrow().getPassword())).isTrue();
         assertThat(redisAuthStore.get("verified:new@example.com")).isNull();
+        UUID signedUpUserId = authUserRepository.findByEmail("new@example.com").orElseThrow().getId();
+        assertThat(jdbcTemplate.queryForList(
+                "select term_type::text from user_term_agreements where user_id=? and agreed order by term_type::text",
+                String.class, signedUpUserId)).containsExactly("MARKETING", "PRIVACY_POLICY", "TERMS_OF_SERVICE");
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from user_term_agreements where user_id=? and agreed_at is null",
+                Integer.class, signedUpUserId)).isZero();
         postJson("/signup", signup).andExpect(status().isForbidden());
     }
 
@@ -345,7 +352,7 @@ class AuthIntegrationTest {
         assertThat(redisAuthStore.get("auth:new@example.com")).isNull();
         postJson("/email/verify", new VerifyEmailRequest("new@example.com", 123456)).andExpect(
                 status().isUnauthorized());
-        postJson("/signup", new SignupRequest("new@example.com", "password")).andExpect(
+        postJson("/signup", new SignupRequest("new@example.com", "password", true, true, false)).andExpect(
                 status().isForbidden());
     }
 
@@ -364,7 +371,7 @@ class AuthIntegrationTest {
         stringRedisTemplate.expire("oauth:link_state:" + state, Duration.ZERO);
         mockMvc.perform(get(BASE + "/google/callback").param("state", state).param("code", "code"))
                 .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=invalid_state"));
-        postJson("/oauth/signup/complete", new OAuthSignupRequest("expired-ticket", "New User", true)).andExpect(
+        postJson("/oauth/signup/complete", new OAuthSignupRequest("expired-ticket", "New User", true, true, false)).andExpect(
                 status().isUnauthorized());
     }
 
@@ -391,15 +398,18 @@ class AuthIntegrationTest {
         assertThat(EXTERNAL.userInfoAuthorization).isEqualTo("Bearer fake-google-access");
         mockMvc.perform(get(BASE + "/google/callback").param("state", state).param("code", "google-code"))
                 .andExpect(redirectedUrl("http://frontend.test/oauth/callback?kind=error&reason=invalid_state"));
-        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", false)).andExpect(
+        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", false, true, false)).andExpect(
                 status().isBadRequest());
         assertThat(redisAuthStore.get("oauth:signup_ticket:" + ticket)).isNotNull();
-        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", true)).andExpect(
+        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", true, true, false)).andExpect(
                 status().isCreated());
         AuthUser user = authUserRepository.findByEmail("google@example.com").orElseThrow();
         assertThat(user.getPassword()).isNull();
         assertThat(oAuthAccountRepository.findByUserIdAndDeletedAtIsNull(user.getId())).hasSize(1);
-        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", true)).andExpect(
+        assertThat(jdbcTemplate.queryForList(
+                "select term_type::text from user_term_agreements where user_id=? and agreed order by term_type::text",
+                String.class, user.getId())).containsExactly("PRIVACY_POLICY", "TERMS_OF_SERVICE");
+        postJson("/oauth/signup/complete", new OAuthSignupRequest(ticket, "Google User", true, true, false)).andExpect(
                 status().isUnauthorized());
     }
 

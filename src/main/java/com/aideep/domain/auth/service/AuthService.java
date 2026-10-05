@@ -10,6 +10,7 @@ import com.aideep.domain.auth.entity.AuthUser;
 import com.aideep.domain.auth.exception.AuthError;
 import com.aideep.domain.auth.repository.AuthUserRepository;
 import com.aideep.domain.auth.security.CurrentUser;
+import com.aideep.domain.onboarding.dto.TermConsent;
 import com.aideep.global.exception.BusinessException;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -35,8 +36,8 @@ public class AuthService {
     private final Clock clock;
 
     public AuthService(AuthUserRepository authUserRepository, OAuthService.AuthDatabase authDatabase,
-                       RedisAuthStore redisAuthStore,
-                       JwtTokenService jwtTokenService, PasswordEncoder passwordEncoder, AuthProperties authProperties,
+                       RedisAuthStore redisAuthStore, JwtTokenService jwtTokenService,
+                       PasswordEncoder passwordEncoder, AuthProperties authProperties,
                        Environment environment, Clock clock) {
         this.authUserRepository = authUserRepository;
         this.authDatabase = authDatabase;
@@ -95,7 +96,8 @@ public class AuthService {
         if (redisAuthStore.get("verified:" + body.email()) == null)
             throw new BusinessException(AuthError.EMAIL_UNVERIFIED);
         try {
-            authDatabase.createUser(body.email(), passwordEncoder.encode(body.password()));
+            authDatabase.createUser(body.email(), passwordEncoder.encode(body.password()),
+                    new TermConsent(body.termsOfService(), body.privacyPolicy(), body.marketing()));
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(AuthError.EMAIL_ALREADY_EXISTS);
         }

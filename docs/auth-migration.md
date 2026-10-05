@@ -33,14 +33,14 @@ JWT secret이 없거나 짧으면 시작을 거부합니다. 기존 secret이 32
 |---------------------------------|------------|----------------------------------------------------------|
 | POST `/login`                   | 공개         | `email`, `password` → `accessToken`, `refreshToken`      |
 | POST `/refresh`                 | 공개         | `refreshToken` → 토큰 쌍                                    |
-| POST `/signup`                  | 공개         | `email`, `password`, `name`, `phone`; 이메일 인증 필수          |
+| POST `/signup`                  | 공개         | `email`, `password`, `terms:true`, `privacy:true`, `marketing`; 이메일 인증 필수 |
 | POST `/email/send`              | 공개         | `email` → `{ok:true}`. 인증번호는 응답하지 않음                     |
 | POST `/email/verify`            | 공개         | `email`, 숫자 `code`                                       |
 | POST `/issue/master`            | 이메일/비밀번호   | `email`, `password`; dev 전용 + UUID 허용 목록                 |
 | DELETE `/logout`                | JWT        | 저장된 refresh 삭제, 전달된 JWT를 잔여 유효시간 동안 폐기                   |
 | GET `/google`                   | 공개         | Google 인증으로 이동                                           |
 | GET `/google/callback`          | 일회용 state  | Google code 교환, 프론트엔드 결과 페이지로 이동                         |
-| POST `/oauth/signup/complete`   | 일회용 ticket | `ticket`, `username`(2~100자), `agreedToTerms:true`       |
+| POST `/oauth/signup/complete`   | 일회용 ticket | `ticket`, `username`(2~100자), `terms:true`, `privacy:true`, `marketing` |
 | GET `/oauth/link/google`        | JWT        | 로그인 사용자에 대한 Google 연결 시작                                 |
 | GET `/oauth/links`              | JWT        | 활성 계정의 `provider`, `email`, `created_at` 목록              |
 | DELETE `/oauth/link/{provider}` | JWT        | soft delete. 마지막 로그인 수단이면 409                            |

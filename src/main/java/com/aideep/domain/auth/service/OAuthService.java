@@ -12,6 +12,8 @@ import com.aideep.domain.auth.entity.OAuthAccount;
 import com.aideep.domain.auth.exception.AuthError;
 import com.aideep.domain.auth.repository.AuthUserRepository;
 import com.aideep.domain.auth.repository.OAuthAccountRepository;
+import com.aideep.domain.onboarding.dto.TermConsent;
+import com.aideep.domain.onboarding.service.UserTermAgreementService;
 import com.aideep.global.exception.BusinessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -104,7 +106,8 @@ public class OAuthService {
         if (ticket == null) throw new BusinessException(AuthError.SIGNUP_TICKET_INVALID);
         AuthUser user;
         try {
-            user = authDatabase.createOAuthUser(ticket);
+            user = authDatabase.createOAuthUser(ticket,
+                    new TermConsent(body.terms(), body.privacy(), body.marketing()));
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(AuthError.OAUTH_SIGNUP_CONFLICT);
         }
@@ -124,13 +127,16 @@ public class OAuthService {
     public static class AuthDatabase {
         private final AuthUserRepository authUserRepository;
         private final OAuthAccountRepository oAuthAccountRepository;
+        private final UserTermAgreementService userTermAgreementService;
         private final JdbcTemplate jdbcTemplate;
         private final Clock clock;
 
         public AuthDatabase(AuthUserRepository authUserRepository, OAuthAccountRepository oAuthAccountRepository,
-                            JdbcTemplate jdbcTemplate, Clock clock) {
+                            UserTermAgreementService userTermAgreementService, JdbcTemplate jdbcTemplate,
+                            Clock clock) {
             this.authUserRepository = authUserRepository;
             this.oAuthAccountRepository = oAuthAccountRepository;
+            this.userTermAgreementService = userTermAgreementService;
             this.jdbcTemplate = jdbcTemplate;
             this.clock = clock;
         }
@@ -140,12 +146,27 @@ public class OAuthService {
             return authUserRepository.saveAndFlush(new AuthUser(email, password, clock.instant()));
         }
 
+        /** 회원가입 경로. 사용자와 약관 동의를 한 트랜잭션에서 저장해 둘 중 하나만 남는 상태를 막는다. */
+        @Transactional
+        public AuthUser createUser(String email, String password, TermConsent termConsent) {
+            AuthUser user = createUser(email, password);
+            userTermAgreementService.record(user.getId(), termConsent);
+            return user;
+        }
+
         @Transactional
         public AuthUser createOAuthUser(SignupTicket ticket) {
             AuthUser user = createUser(ticket.email(), null);
             oAuthAccountRepository.saveAndFlush(
                     new OAuthAccount(user.getId(), ticket.provider(), ticket.providerUserId(), ticket.email(),
                             clock.instant()));
+            return user;
+        }
+
+        @Transactional
+        public AuthUser createOAuthUser(SignupTicket ticket, TermConsent termConsent) {
+            AuthUser user = createOAuthUser(ticket);
+            userTermAgreementService.record(user.getId(), termConsent);
             return user;
         }
 
