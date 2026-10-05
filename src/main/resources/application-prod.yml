@@ -28,7 +28,15 @@ spring:
       ssl:
         enabled: ${REDIS_SSL:false}
 server:
-  port: ${PORT:8080}
+  port: ${PORT:8090}
+
+management:
+  statsd:
+    metrics:
+      export:
+        protocol: uds_datagram
+        # uds_datagram 에서는 host 가 소켓 경로로 사용된다
+        host: ${DD_DOGSTATSD_SOCKET:/var/run/datadog/dsd.socket}
 
 logging:
   level:
