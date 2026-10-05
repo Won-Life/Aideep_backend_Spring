@@ -3,6 +3,7 @@ package com.aideep.domain.node.consumer;
 import com.aideep.domain.node.config.NodeEventConfiguration;
 import com.aideep.domain.node.config.NodeEventProperties;
 import com.aideep.domain.node.exception.NodeError;
+import com.aideep.domain.node.service.NodeCommandResultService;
 import com.aideep.domain.node.service.NodeEventWorkResult;
 import com.aideep.domain.node.service.NodeEventWorker;
 import java.time.Clock;
@@ -41,6 +42,7 @@ public class RedisNodeEventConsumer implements SmartLifecycle {
     private final StreamOperations<String, String, String> streamOperations;
     private final NodeEventProperties nodeEventProperties;
     private final NodeEventWorker nodeEventWorker;
+    private final NodeCommandResultService nodeCommandResultService;
     private final StreamMessageListenerContainer<String, MapRecord<String, String, String>> listenerContainer;
     private final ScheduledExecutorService scheduledExecutorService;
     private final Clock clock;
@@ -53,6 +55,7 @@ public class RedisNodeEventConsumer implements SmartLifecycle {
     public RedisNodeEventConsumer(StringRedisTemplate stringRedisTemplate,
                                   NodeEventProperties nodeEventProperties,
                                   NodeEventWorker nodeEventWorker,
+                                  NodeCommandResultService nodeCommandResultService,
                                   StreamMessageListenerContainer<String, MapRecord<String, String, String>>
                                           listenerContainer,
                                   @Qualifier(NodeEventConfiguration.MAINTENANCE_EXECUTOR)
@@ -62,6 +65,7 @@ public class RedisNodeEventConsumer implements SmartLifecycle {
         this.streamOperations = stringRedisTemplate.opsForStream();
         this.nodeEventProperties = nodeEventProperties;
         this.nodeEventWorker = nodeEventWorker;
+        this.nodeCommandResultService = nodeCommandResultService;
         this.listenerContainer = listenerContainer;
         this.scheduledExecutorService = scheduledExecutorService;
         this.clock = clockProvider.getIfAvailable(Clock::systemUTC);
@@ -187,6 +191,10 @@ public class RedisNodeEventConsumer implements SmartLifecycle {
 
     private void moveToDlqAndAcknowledge(MapRecord<String, String, String> record, String data,
                                          NodeEventWorkResult result, long attempts) {
+        if (!nodeCommandResultService.recordFailure(data, result)) {
+            acknowledge(record, result, "already-succeeded");
+            return;
+        }
         Map<String, String> fields = new LinkedHashMap<>();
         fields.put("sourceStream", nodeEventProperties.streamKey());
         fields.put("sourceEntryId", record.getId().getValue());

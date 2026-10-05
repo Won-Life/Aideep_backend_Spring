@@ -32,6 +32,18 @@ class NodeEventWorkerTest {
     }
 
     @Test
+    void preservesStructuredBusinessFailureForTerminalResult() {
+        var details = java.util.Map.of("nodeId", "55555555-5555-4555-8555-555555555555",
+                "expectedVersion", 7, "currentVersion", 8);
+        var businessException = new BusinessException(NodeError.STALE_NODE_VERSION, details);
+        NodeEventWorkResult result = worker(nodeEventEnvelope -> {
+            throw businessException;
+        }).process(VALID_EVENT);
+        assertThat(result.cause()).isSameAs(businessException);
+        assertThat(((BusinessException) result.cause()).getData()).isEqualTo(details);
+    }
+
+    @Test
     void classifiesContractAndProcessorFailures() {
         NodeEventWorker permanentWorker = worker(nodeEventEnvelope -> {
             throw new BusinessException(NodeError.STALE_NODE_VERSION, "stale node version");

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aideep.domain.node.config.NodeEventProperties;
 import com.aideep.domain.node.service.NodeCommandProcessingResult;
+import com.aideep.domain.node.service.NodeCommandResultService;
 import com.aideep.domain.node.service.NodeCommandProcessor;
 import com.aideep.domain.node.service.NodeEventParser;
 import com.aideep.domain.node.service.NodeEventWorker;
@@ -59,9 +60,13 @@ class RedisNodeEventConsumerIntegrationTest {
     private ScheduledExecutorService maintenanceExecutorService;
     private StreamMessageListenerContainer<String, MapRecord<String, String, String>> listenerContainer;
     private RedisNodeEventConsumer redisNodeEventConsumer;
+    private NodeCommandResultService nodeCommandResultService;
 
     @BeforeEach
     void setUp() {
+        nodeCommandResultService = org.mockito.Mockito.mock(NodeCommandResultService.class);
+        org.mockito.Mockito.when(nodeCommandResultService.recordFailure(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(true);
         lettuceConnectionFactory = new LettuceConnectionFactory(REDIS.getHost(), REDIS.getMappedPort(6379));
         lettuceConnectionFactory.afterPropertiesSet();
         lettuceConnectionFactory.start();
@@ -176,6 +181,18 @@ class RedisNodeEventConsumerIntegrationTest {
     }
 
     @Test
+    void doesNotDlqACommandWhoseSuccessWonTheTerminalRace() throws Exception {
+        org.mockito.Mockito.when(nodeCommandResultService.recordFailure(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(false);
+        addEvent(VALID_EVENT);
+        startConsumer(nodeEventEnvelope -> {
+            throw new IllegalStateException("another transaction already succeeded");
+        }, 1);
+        await(() -> groupExists() && pendingCount() == 0);
+        assertThat(streamSize(DLQ)).isZero();
+    }
+
+    @Test
     void processesOnlyOneEventAtATimeWithinAnInstance() throws Exception {
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maxActive = new AtomicInteger();
@@ -221,6 +238,7 @@ class RedisNodeEventConsumerIntegrationTest {
         var beanFactory = new StaticListableBeanFactory();
         beanFactory.addBean("clock", Clock.fixed(Instant.parse("2030-01-01T00:00:00Z"), ZoneOffset.UTC));
         redisNodeEventConsumer = new RedisNodeEventConsumer(stringRedisTemplate, nodeEventProperties, nodeEventWorker,
+                nodeCommandResultService,
                 listenerContainer, maintenanceExecutorService, beanFactory.getBeanProvider(Clock.class));
         redisNodeEventConsumer.start();
     }

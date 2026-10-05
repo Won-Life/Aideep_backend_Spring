@@ -76,3 +76,14 @@ CREATE TABLE processed_node_events
     deleted_at   timestamptz
 );
 CREATE INDEX idx_processed_node_events_workspace ON processed_node_events (workspace_id);
+
+CREATE TABLE node_command_results
+(
+    id uuid PRIMARY KEY,
+    command_event_id uuid NOT NULL UNIQUE,
+    data text NOT NULL,
+    published_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    deleted_at timestamptz
+);

@@ -1,12 +1,17 @@
 package com.aideep.domain.node.service;
 
 import com.aideep.domain.node.dto.event.NodeCreateCommand;
+import com.aideep.domain.node.dto.event.TerminalNodeCommandFailure;
+import java.util.Arrays;
 import com.aideep.domain.node.dto.event.NodeEventEnvelope;
 import com.aideep.domain.node.dto.event.NodePatchCommand;
 import com.aideep.domain.node.dto.event.NodePosition;
 import com.aideep.domain.node.dto.event.NodeRealtimeEvent;
 import com.aideep.domain.node.dto.event.NodeWorkspaceEvent;
 import com.aideep.domain.node.entity.Node;
+import com.aideep.domain.node.entity.NodeCommandResult;
+import com.aideep.domain.node.repository.NodeCommandResultRepository;
+import java.util.Map;
 import com.aideep.domain.node.entity.ProcessedNodeEvent;
 import com.aideep.domain.node.exception.NodeError;
 import com.aideep.domain.node.repository.NodeRepository;
@@ -30,6 +35,7 @@ import tools.jackson.databind.node.ObjectNode;
 @Service
 public class NodeCommandService {
 
+    private final NodeCommandResultRepository nodeCommandResultRepository;
     private final NodeRepository nodeRepository;
     private final ProcessedNodeEventRepository processedNodeEventRepository;
     private final NodeCommandPayloadParser nodeCommandPayloadParser;
@@ -38,13 +44,15 @@ public class NodeCommandService {
     private final Clock clock;
     private final ApplicationEventPublisher applicationEventPublisher;
 
-    public NodeCommandService(NodeRepository nodeRepository,
+    public NodeCommandService(NodeCommandResultRepository nodeCommandResultRepository,
+                              NodeRepository nodeRepository,
                               ProcessedNodeEventRepository processedNodeEventRepository,
                               NodeCommandPayloadParser nodeCommandPayloadParser,
                               WorkspaceQueryService workspaceQueryService,
                               ObjectMapper objectMapper,
                               Clock clock,
                               ApplicationEventPublisher applicationEventPublisher) {
+        this.nodeCommandResultRepository = nodeCommandResultRepository;
         this.nodeRepository = nodeRepository;
         this.processedNodeEventRepository = processedNodeEventRepository;
         this.nodeCommandPayloadParser = nodeCommandPayloadParser;
@@ -61,6 +69,18 @@ public class NodeCommandService {
 
     @Transactional
     public void apply(NodeEventEnvelope nodeEventEnvelope) {
+        var existing = nodeCommandResultRepository.findByCommandEventId(nodeEventEnvelope.eventId());
+        if (existing.isPresent()) {
+            var error = objectMapper.readTree(existing.get().getData()).at("/payload/error");
+            if (!error.isMissingNode()) {
+                NodeError nodeError = Arrays.stream(NodeError.values())
+                        .filter(value -> value.getCode().equals(error.path("code").asString()))
+                        .findFirst().orElse(NodeError.PROCESSOR_FAILURE);
+                throw new BusinessException(nodeError, new TerminalNodeCommandFailure(error));
+            }
+            existing.get().requestPublication(clock.instant());
+            return;
+        }
         if (processedNodeEventRepository.existsById(nodeEventEnvelope.eventId())) {
             return;
         }
@@ -86,6 +106,7 @@ public class NodeCommandService {
         Node node = nodeRepository.save(Node.create(nodeEventEnvelope.workspaceId(), nodeCreateCommand.title(),
                 nodeCreateCommand.nodeType(), nodeCreateCommand.position().x(), nodeCreateCommand.position().y(),
                 writeJson(nodeCreateCommand.data()), now));
+        saveSuccess(nodeEventEnvelope, node, now);
         return new NodeWorkspaceEvent.Created("NODE_CREATE", node.getWorkspaceId(), "system:ai",
                 new NodeWorkspaceEvent.NodeSnapshot(node.getId(), node.getTitle(), node.getNodeType().name(),
                         new NodePosition(node.getPositionX(), node.getPositionY()), readObject(node.getContent()),
@@ -103,10 +124,23 @@ public class NodeCommandService {
         node.applyPatch(nodePatchCommand.title(), nodePatchCommand.nodeType(),
                 mergeContent(node.getContent(), nodePatchCommand.data()),
                 nodePatchCommand.expectedVersion(), now);
+        saveSuccess(nodeEventEnvelope, node, now);
         return new NodeWorkspaceEvent.Updated("NODE_UPDATE", node.getWorkspaceId(), "system:ai", node.getId(),
                 new NodeWorkspaceEvent.Patch(nodePatchCommand.title(),
                         nodePatchCommand.nodeType() == null ? null : node.getNodeType().name(),
                         nodePatchCommand.data() == null ? null : readObject(node.getContent())));
+    }
+
+    private void saveSuccess(NodeEventEnvelope nodeEventEnvelope, Node node, Instant now) {
+        UUID eventId = UUID.randomUUID();
+        String data = objectMapper.writeValueAsString(Map.of(
+                "version", 1, "eventId", eventId, "eventType",
+                nodeEventEnvelope.eventType().name().replace("_REQUESTED", "_SUCCEEDED"),
+                "occurredAt", now.toString(), "workspaceId", nodeEventEnvelope.workspaceId(),
+                "payload", Map.of("commandEventId", nodeEventEnvelope.eventId(),
+                        "commandEventType", nodeEventEnvelope.eventType().name(),
+                        "result", Map.of("nodeId", node.getId(), "nodeVersion", node.getVersion()))));
+        nodeCommandResultRepository.save(new NodeCommandResult(eventId, nodeEventEnvelope.eventId(), data, now));
     }
 
     private String mergeContent(String currentContent, ObjectNode patchData) {

@@ -1,6 +1,7 @@
 package com.aideep.domain.node.service;
 
 import com.aideep.domain.node.dto.event.NodeEventEnvelope;
+import com.aideep.domain.node.dto.event.TerminalNodeCommandFailure;
 import com.aideep.domain.node.dto.event.NodeEventErrorContext;
 import com.aideep.domain.node.exception.NodeError;
 import com.aideep.global.exception.BusinessException;
@@ -30,17 +31,18 @@ public class NodeEventWorker {
             throw new IllegalStateException("Node command processor returned no result");
         } catch (BusinessException exception) {
             if (!(exception.getErrorCode() instanceof NodeError nodeError)
-                    || nodeError == NodeError.PROCESSOR_FAILURE) {
+                    || (nodeError == NodeError.PROCESSOR_FAILURE
+                    && !(exception.getData() instanceof TerminalNodeCommandFailure))) {
                 return NodeEventWorkResult.retryableFailure(nodeEventEnvelope, NodeError.PROCESSOR_FAILURE.getCode(), exception);
             }
             if (nodeEventEnvelope != null) {
                 return NodeEventWorkResult.permanentFailure(nodeEventEnvelope, nodeEventEnvelope.eventId().toString(),
-                        nodeEventEnvelope.eventType().name(), exception.getErrorCode().getCode());
+                        nodeEventEnvelope.eventType().name(), exception.getErrorCode().getCode(), exception);
             }
             NodeEventErrorContext nodeEventErrorContext = exception.getData() instanceof NodeEventErrorContext context
                     ? context : new NodeEventErrorContext(null, null, null);
             return NodeEventWorkResult.permanentFailure(null, nodeEventErrorContext.eventId(),
-                    nodeEventErrorContext.eventType(), exception.getErrorCode().getCode());
+                    nodeEventErrorContext.eventType(), exception.getErrorCode().getCode(), exception);
         } catch (RuntimeException exception) {
             return NodeEventWorkResult.retryableFailure(nodeEventEnvelope, NodeError.PROCESSOR_FAILURE.getCode(), exception);
         }

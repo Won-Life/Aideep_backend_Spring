@@ -60,7 +60,7 @@ import tools.jackson.databind.ObjectMapper;
 @DataJpaTest(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=false"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({NodeCommandService.class, NodeCommandPayloadParser.class, WorkspaceQueryService.class,
-        NodeRealtimeEventIntegrationTest.TestBeans.class, NodeEventBusPublisher.class})
+        NodeRealtimeEventIntegrationTest.TestBeans.class, NodeEventBusPublisher.class, NodeCommandResultService.class})
 class NodeRealtimeEventIntegrationTest {
 
     private static final UUID WORKSPACE_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
@@ -96,6 +96,9 @@ class NodeRealtimeEventIntegrationTest {
     private NodeCommandService nodeCommandService;
 
     @Autowired
+    private NodeCommandResultService nodeCommandResultService;
+
+    @Autowired
     private NodeRepository nodeRepository;
 
     @Autowired
@@ -106,7 +109,7 @@ class NodeRealtimeEventIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.execute("truncate processed_node_events, nodes, workspaces cascade");
+        jdbcTemplate.execute("truncate node_command_results, processed_node_events, nodes, workspaces cascade");
         jdbcTemplate.update("insert into workspaces(workspace_id, title) values (?,?)", WORKSPACE_ID, "AI 워크스페이스");
     }
 
@@ -255,14 +258,23 @@ class NodeRealtimeEventIntegrationTest {
         processStreamCommand(true);
     }
 
+    @Test
+    void persistsTerminalFailureBeforeAcknowledging() throws Exception {
+        processStreamCommand(false, true);
+    }
+
     private void processStreamCommand(boolean failPublication) throws Exception {
+        processStreamCommand(failPublication, false);
+    }
+
+    private void processStreamCommand(boolean failPublication, boolean failCommand) throws Exception {
         if (failPublication) {
             doThrow(new IllegalStateException("pubsub unavailable")).when(stringRedisTemplate)
                     .convertAndSend(eq(NodeEventBusPublisher.CHANNEL), anyString());
         }
         String stream = "test:node:commands";
         String group = "test:node:workers";
-        stringRedisTemplate.delete(stream);
+        stringRedisTemplate.delete(java.util.List.of(stream, "test:node:dlq", "test:node:retries"));
         var nodeEventProperties = new NodeEventProperties(true, stream, "test:node:dlq", "test:node:retries",
                 group, "test-worker", 1, Duration.ofMillis(20), Duration.ofSeconds(30),
                 Duration.ofSeconds(30), 3, 1000);
@@ -279,16 +291,17 @@ class NodeRealtimeEventIntegrationTest {
         var staticListableBeanFactory = new StaticListableBeanFactory();
         staticListableBeanFactory.addBean("clock", Clock.fixed(NOW, ZoneOffset.UTC));
         var redisNodeEventConsumer = new RedisNodeEventConsumer(stringRedisTemplate, nodeEventProperties,
-                nodeEventWorker, streamMessageListenerContainer, scheduledExecutorService,
+                nodeEventWorker, nodeCommandResultService, streamMessageListenerContainer, scheduledExecutorService,
                 staticListableBeanFactory.getBeanProvider(Clock.class));
         UUID eventId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         try {
             redisNodeEventConsumer.start();
-            stringRedisTemplate.opsForStream().add(stream, Map.of("data", createEventJson(eventId, WORKSPACE_ID)));
+            stringRedisTemplate.opsForStream().add(stream, Map.of("data", createEventJson(eventId, failCommand ? UUID.randomUUID() : WORKSPACE_ID)));
             long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
             boolean acknowledged = false;
             while (System.nanoTime() < deadline) {
-                if (processedNodeEventRepository.existsById(eventId)
+                if ((failCommand ? stringRedisTemplate.opsForStream().size("test:node:dlq") > 0
+                        : processedNodeEventRepository.existsById(eventId))
                         && stringRedisTemplate.opsForStream().pending(stream, group).getTotalPendingMessages() == 0) {
                     acknowledged = true;
                     break;
@@ -296,9 +309,23 @@ class NodeRealtimeEventIntegrationTest {
                 Thread.sleep(20);
             }
             assertThat(acknowledged).isTrue();
-            assertThat(nodeRepository.count()).isEqualTo(1);
-            verify(stringRedisTemplate).convertAndSend(eq(NodeEventBusPublisher.CHANNEL), anyString());
-            assertThat(stringRedisTemplate.opsForStream().size("test:node:dlq")).isZero();
+            if (failCommand) {
+                assertThat(jdbcTemplate.queryForObject(
+                        "select count(*) from node_command_results where command_event_id=?", Long.class, eventId))
+                        .isEqualTo(1);
+                var result = objectMapper.readTree(jdbcTemplate.queryForObject(
+                        "select data from node_command_results where command_event_id=?", String.class, eventId));
+                assertThat(result.path("eventType").asString()).isEqualTo("NODE_CREATE_FAILED");
+                assertThat(result.at("/payload/error/code").asString()).isEqualTo("NODE-007");
+                assertThat(result.at("/payload/error/message").asString()).isNotBlank();
+                assertThat(result.at("/payload/error").has("details")).isTrue();
+                assertThat(nodeRepository.count()).isZero();
+                verify(stringRedisTemplate, never()).convertAndSend(anyString(), anyString());
+            } else {
+                assertThat(nodeRepository.count()).isEqualTo(1);
+                verify(stringRedisTemplate).convertAndSend(eq(NodeEventBusPublisher.CHANNEL), anyString());
+                assertThat(stringRedisTemplate.opsForStream().size("test:node:dlq")).isZero();
+            }
         } finally {
             redisNodeEventConsumer.stop();
             streamMessageListenerContainer.stop();

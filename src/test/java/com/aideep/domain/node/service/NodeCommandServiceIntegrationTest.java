@@ -32,7 +32,7 @@ import tools.jackson.databind.ObjectMapper;
 @Testcontainers
 @DataJpaTest(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=false"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({NodeCommandService.class, NodeCommandPayloadParser.class, WorkspaceQueryService.class,
+@Import({NodeCommandResultService.class, NodeCommandService.class, NodeCommandPayloadParser.class, WorkspaceQueryService.class,
         NodeCommandServiceIntegrationTest.TestBeans.class})
 class NodeCommandServiceIntegrationTest {
 
@@ -54,7 +54,13 @@ class NodeCommandServiceIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
+    private org.springframework.transaction.PlatformTransactionManager platformTransactionManager;
+
+    @Autowired
     private NodeCommandService nodeCommandService;
+
+    @Autowired
+    private NodeCommandResultService nodeCommandResultService;
 
     @Autowired
     private NodeRepository nodeRepository;
@@ -70,7 +76,7 @@ class NodeCommandServiceIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.execute("truncate processed_node_events, nodes, workspaces cascade");
+        jdbcTemplate.execute("truncate node_command_results, processed_node_events, nodes, workspaces cascade");
         jdbcTemplate.update("insert into workspaces(workspace_id, title) values (?,?)", WORKSPACE_ID, "AI 워크스페이스");
     }
 
@@ -94,6 +100,175 @@ class NodeCommandServiceIntegrationTest {
         assertThat(jdbcTemplate.queryForObject(
                 "select event_type from processed_node_events where event_id=?", String.class, eventId))
                 .isEqualTo("NODE_CREATE_REQUESTED");
+    }
+
+    @Test
+    void persistsStableCreateResultWithTheNodeTransaction() {
+        UUID eventId = UUID.fromString("11111111-1111-4111-8111-111111111111");
+        nodeCommandService.apply(createEvent(eventId));
+        assertThat(jdbcTemplate.queryForObject("select to_regclass('node_command_results')", String.class))
+                .isNotNull();
+        String data = jdbcTemplate.queryForObject(
+                "select data from node_command_results where command_event_id=?", String.class, eventId);
+        var result = objectMapper.readTree(data);
+        assertThat(result.path("version").asInt()).isEqualTo(1);
+        assertThat(UUID.fromString(result.path("eventId").asString())).isNotEqualTo(eventId);
+        assertThat(result.path("eventType").asString()).isEqualTo("NODE_CREATE_SUCCEEDED");
+        assertThat(Instant.parse(result.path("occurredAt").asString())).isEqualTo(NOW);
+        assertThat(result.path("workspaceId").asString()).isEqualTo(WORKSPACE_ID.toString());
+        assertThat(result.at("/payload/commandEventId").asString()).isEqualTo(eventId.toString());
+        assertThat(result.at("/payload/commandEventType").asString()).isEqualTo("NODE_CREATE_REQUESTED");
+        assertThat(result.at("/payload/result/nodeId").asString())
+                .isEqualTo(nodeRepository.findAll().getFirst().getId().toString());
+        assertThat(result.at("/payload/result/nodeVersion").asInt()).isEqualTo(1);
+        assertThat(result.path("payload").has("error")).isFalse();
+        nodeCommandService.apply(createEvent(eventId));
+        assertThat(jdbcTemplate.queryForObject(
+                "select data from node_command_results where command_event_id=?", String.class, eventId))
+                .isEqualTo(data);
+    }
+
+    @Test
+    void patchResultRetainsItsCommittedVersionAfterLaterChanges() {
+        nodeCommandService.apply(createEvent(UUID.randomUUID()));
+        UUID nodeId = nodeRepository.findAll().getFirst().getId();
+        UUID eventId = UUID.randomUUID();
+        NodeEventEnvelope command = patchEvent(eventId, nodeId, 1, "{\"title\":\"first\"}");
+        nodeCommandService.apply(command);
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from node_command_results where command_event_id=?", Long.class, eventId))
+                .isEqualTo(1);
+        String data = jdbcTemplate.queryForObject(
+                "select data from node_command_results where command_event_id=?", String.class, eventId);
+        var result = objectMapper.readTree(data);
+        assertThat(result.path("eventType").asString()).isEqualTo("NODE_PATCH_SUCCEEDED");
+        assertThat(result.at("/payload/result/nodeVersion").asInt()).isEqualTo(2);
+        nodeCommandService.apply(patchEvent(UUID.randomUUID(), nodeId, 2, "{\"title\":\"second\"}"));
+        nodeCommandService.apply(command);
+        assertThat(jdbcTemplate.queryForObject(
+                "select data from node_command_results where command_event_id=?", String.class, eventId))
+                .isEqualTo(data);
+        assertThat(nodeRepository.findById(nodeId).orElseThrow().getVersion()).isEqualTo(3);
+    }
+
+    @Test
+    void terminalStaleFailurePreservesStructuredDetails() {
+        nodeCommandService.apply(createEvent(UUID.randomUUID()));
+        UUID nodeId = nodeRepository.findAll().getFirst().getId();
+        UUID eventId = UUID.randomUUID();
+        var command = patchEvent(eventId, nodeId, 9, "{\"title\":\"stale\"}");
+        var nodeEventWorker = new NodeEventWorker(nodeEventParser,
+                new PersistentNodeCommandProcessor(nodeCommandService));
+        var failure = nodeEventWorker.process(objectMapper.writeValueAsString(command));
+        nodeCommandResultService.recordFailure(null, failure);
+        var result = objectMapper.readTree(jdbcTemplate.queryForObject(
+                "select data from node_command_results where command_event_id=?", String.class, eventId));
+        assertThat(result.path("eventType").asString()).isEqualTo("NODE_PATCH_FAILED");
+        assertThat(result.at("/payload/error/code").asString()).isEqualTo("NODE-009");
+        assertThat(result.at("/payload/error/details/nodeId").asString()).isEqualTo(nodeId.toString());
+        assertThat(result.at("/payload/error/details/expectedVersion").asInt()).isEqualTo(9);
+        assertThat(result.at("/payload/error/details/currentVersion").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void terminalFailureCannotExecuteAgainAndRetainsOriginalResult() {
+        UUID eventId = UUID.randomUUID();
+        var command = createEvent(eventId);
+        var failure = NodeEventWorkResult.retryableFailure(command, "NODE-011",
+                new IllegalStateException("secret database information"));
+        nodeCommandResultService.recordFailure(null, failure);
+        String original = jdbcTemplate.queryForObject(
+                "select data from node_command_results where command_event_id=?", String.class, eventId);
+        var nodeEventWorker = new NodeEventWorker(nodeEventParser,
+                new PersistentNodeCommandProcessor(nodeCommandService));
+        var repeated = nodeEventWorker.process(objectMapper.writeValueAsString(command));
+        assertThat(repeated.status()).isEqualTo(NodeEventWorkResult.Status.PERMANENT_FAILURE);
+        assertThat(repeated.errorCode()).isEqualTo("NODE-011");
+        assertThat(nodeRepository.count()).isZero();
+        assertThat(nodeCommandResultService.recordFailure(null, repeated)).isTrue();
+        assertThat(jdbcTemplate.queryForObject(
+                "select data from node_command_results where command_event_id=?", String.class, eventId))
+                .isEqualTo(original).doesNotContain("secret database information");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"version", "occurredAt", "payload"})
+    void invalidEnvelopeWithKnownIdentityStillGetsTerminalResult(String invalidField) {
+        UUID eventId = UUID.randomUUID();
+        var json = (tools.jackson.databind.node.ObjectNode) objectMapper.readTree(createEventJson(eventId, WORKSPACE_ID));
+        json.putNull(invalidField);
+        String data = objectMapper.writeValueAsString(json);
+        var nodeEventWorker = new NodeEventWorker(nodeEventParser,
+                new PersistentNodeCommandProcessor(nodeCommandService));
+        assertThat(nodeCommandResultService.recordFailure(data, nodeEventWorker.process(data))).isTrue();
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from node_command_results where command_event_id=?", Long.class, eventId))
+                .isEqualTo(1);
+        assertThat(nodeRepository.count()).isZero();
+    }
+
+    @Test
+    void repeatedTerminalFailureRequeuesTheOriginalResult() {
+        UUID eventId = UUID.randomUUID();
+        var failure = NodeEventWorkResult.retryableFailure(createEvent(eventId), "NODE-011", null);
+        nodeCommandResultService.recordFailure(null, failure);
+        jdbcTemplate.update("update node_command_results set published_at=now() where command_event_id=?", eventId);
+        assertThat(nodeCommandResultService.recordFailure(null, failure)).isTrue();
+        assertThat(jdbcTemplate.queryForObject(
+                "select published_at is null from node_command_results where command_event_id=?", Boolean.class, eventId))
+                .isTrue();
+    }
+
+    @Test
+    void legacyProcessedCommandCannotBeReclassifiedAsFailed() {
+        UUID eventId = UUID.randomUUID();
+        var command = createEvent(eventId);
+        nodeCommandService.apply(command);
+        jdbcTemplate.update("delete from node_command_results where command_event_id=?", eventId);
+        assertThat(nodeCommandResultService.recordFailure(null,
+                NodeEventWorkResult.retryableFailure(command, "NODE-011", null))).isFalse();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from node_command_results", Long.class)).isZero();
+    }
+
+    @Test
+    void concurrentPatchesCannotBothSucceedWithTheSameExpectedVersion() throws Exception {
+        nodeCommandService.apply(createEvent(UUID.randomUUID()));
+        UUID nodeId = nodeRepository.findAll().getFirst().getId();
+        var firstApplied = new java.util.concurrent.CountDownLatch(1);
+        var releaseCommit = new java.util.concurrent.CountDownLatch(1);
+        var transactionTemplate = new org.springframework.transaction.support.TransactionTemplate(platformTransactionManager);
+        try (var executorService = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var first = executorService.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                nodeCommandService.apply(patchEvent(UUID.randomUUID(), nodeId, 1, "{\"title\":\"first\"}"));
+                firstApplied.countDown();
+                try {
+                    if (!releaseCommit.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                        throw new AssertionError("Commit was not released");
+                    }
+                } catch (InterruptedException exception) {
+                    throw new AssertionError(exception);
+                }
+            }));
+            assertThat(firstApplied.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var secondCommand = patchEvent(UUID.randomUUID(), nodeId, 1, "{\"title\":\"second\"}");
+            var second = executorService.submit(() -> new NodeEventWorker(nodeEventParser,
+                    new PersistentNodeCommandProcessor(nodeCommandService))
+                    .process(objectMapper.writeValueAsString(secondCommand)));
+            try {
+                long deadline = System.nanoTime() + java.time.Duration.ofSeconds(5).toNanos();
+                while (jdbcTemplate.queryForObject("select count(*) from pg_stat_activity "
+                        + "where wait_event_type='Lock'", Long.class) == 0 && System.nanoTime() < deadline) {
+                    Thread.sleep(10);
+                }
+            } finally {
+                releaseCommit.countDown();
+            }
+            first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            var result = second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(result.status()).isEqualTo(NodeEventWorkResult.Status.PERMANENT_FAILURE);
+            assertThat(result.errorCode()).isEqualTo("NODE-009");
+        }
+        assertThat(nodeRepository.findById(nodeId).orElseThrow().getVersion()).isEqualTo(2);
     }
 
     @Test

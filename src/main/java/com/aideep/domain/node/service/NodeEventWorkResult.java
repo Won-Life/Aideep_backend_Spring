@@ -14,8 +14,13 @@ public record NodeEventWorkResult(Status status, NodeEventEnvelope nodeEventEnve
 
     public static NodeEventWorkResult permanentFailure(NodeEventEnvelope nodeEventEnvelope, String eventId,
                                                        String eventType, String errorCode) {
+        return permanentFailure(nodeEventEnvelope, eventId, eventType, errorCode, null);
+    }
+
+    public static NodeEventWorkResult permanentFailure(NodeEventEnvelope nodeEventEnvelope, String eventId,
+                                                       String eventType, String errorCode, Throwable cause) {
         return new NodeEventWorkResult(Status.PERMANENT_FAILURE, nodeEventEnvelope, eventId, eventType, errorCode,
-                null);
+                cause);
     }
 
     public static NodeEventWorkResult retryableFailure(NodeEventEnvelope nodeEventEnvelope, String errorCode,
