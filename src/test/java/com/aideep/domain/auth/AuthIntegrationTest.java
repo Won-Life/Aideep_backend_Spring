@@ -317,6 +317,7 @@ class AuthIntegrationTest {
         postJson("/signup", signup).andExpect(status().isCreated()).andExpect(jsonPath("$.success").value("회원가입 성공"));
         assertThat(passwordEncoder.matches("new-password",
                 authUserRepository.findByEmail("new@example.com").orElseThrow().getPassword())).isTrue();
+        assertThat(authUserRepository.findByEmail("new@example.com").orElseThrow().getUsername()).isNull();
         assertThat(redisAuthStore.get("verified:new@example.com")).isNull();
         UUID signedUpUserId = authUserRepository.findByEmail("new@example.com").orElseThrow().getId();
         assertThat(jdbcTemplate.queryForList(
@@ -405,6 +406,7 @@ class AuthIntegrationTest {
                 status().isCreated());
         AuthUser user = authUserRepository.findByEmail("google@example.com").orElseThrow();
         assertThat(user.getPassword()).isNull();
+        assertThat(user.getUsername()).isEqualTo("Google User");
         assertThat(oAuthAccountRepository.findByUserIdAndDeletedAtIsNull(user.getId())).hasSize(1);
         assertThat(jdbcTemplate.queryForList(
                 "select term_type::text from user_term_agreements where user_id=? and agreed order by term_type::text",

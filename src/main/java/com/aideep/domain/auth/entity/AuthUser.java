@@ -34,4 +34,14 @@ public class AuthUser extends BaseEntity {
         password = hash;
         updateTimestamp(now);
     }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    /** 닉네임을 지정한다. 로컬 가입은 null로 두고 온보딩에서, 구글 가입은 가입 시점에 설정한다. */
+    public void changeUsername(String username, Instant now) {
+        this.username = username;
+        updateTimestamp(now);
+    }
 }

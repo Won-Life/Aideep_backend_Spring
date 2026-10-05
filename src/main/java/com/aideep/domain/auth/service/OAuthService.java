@@ -106,7 +106,7 @@ public class OAuthService {
         if (ticket == null) throw new BusinessException(AuthError.SIGNUP_TICKET_INVALID);
         AuthUser user;
         try {
-            user = authDatabase.createOAuthUser(ticket,
+            user = authDatabase.createOAuthUser(ticket, body.username(),
                     new TermConsent(body.terms(), body.privacy(), body.marketing()));
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(AuthError.OAUTH_SIGNUP_CONFLICT);
@@ -164,10 +164,11 @@ public class OAuthService {
         }
 
         @Transactional
-        public AuthUser createOAuthUser(SignupTicket ticket, TermConsent termConsent) {
+        public AuthUser createOAuthUser(SignupTicket ticket, String username, TermConsent termConsent) {
             AuthUser user = createOAuthUser(ticket);
+            user.changeUsername(username, clock.instant());
             userTermAgreementService.record(user.getId(), termConsent);
-            return user;
+            return authUserRepository.saveAndFlush(user);
         }
 
         @Transactional
