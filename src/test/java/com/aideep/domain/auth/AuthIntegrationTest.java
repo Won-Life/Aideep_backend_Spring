@@ -322,6 +322,15 @@ class AuthIntegrationTest {
     }
 
     @Test
+    void verifyingNeverRequestedEmailDoesNotClaimItExpired() throws Exception {
+        assertThat(redisAuthStore.get("auth:never-requested@example.com")).isNull();
+        postJson("/email/verify", new VerifyEmailRequest("never-requested@example.com", 123456))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.errorCode").value("AUTH_VERIFICATION_CODE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.reason").value("인증번호를 요청한 적이 없거나 이미 만료되었습니다. 인증번호를 다시 요청해주세요."));
+    }
+
+    @Test
     void emailVerificationAttemptsExpireWithoutExtendingTtl() throws Exception {
         redisAuthStore.saveCode("new@example.com", "123456", clock.millis());
         stringRedisTemplate.expire("auth:new@example.com", Duration.ofSeconds(90));

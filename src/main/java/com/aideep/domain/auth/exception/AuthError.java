@@ -9,9 +9,9 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum AuthError implements ErrorCode {
     TOKEN_REVOKED(HttpStatus.UNAUTHORIZED, "AUTH_TOKEN_REVOKED", "만료된 토큰입니다."), MASTER_TOKEN_REVOKED(
-            HttpStatus.UNAUTHORIZED, "AUTH_MASTER_TOKEN_REVOKED", "만료/폐기된 마스터 토큰입니다."), VERIFICATION_CODE_EXPIRED(
-            HttpStatus.UNAUTHORIZED, "AUTH_VERIFICATION_CODE_EXPIRED",
-            "인증번호가 만료되었습니다."), VERIFICATION_ATTEMPTS_EXCEEDED(HttpStatus.UNAUTHORIZED,
+            HttpStatus.UNAUTHORIZED, "AUTH_MASTER_TOKEN_REVOKED", "만료/폐기된 마스터 토큰입니다."), VERIFICATION_CODE_NOT_FOUND(
+            HttpStatus.UNAUTHORIZED, "AUTH_VERIFICATION_CODE_NOT_FOUND",
+            "인증번호를 요청한 적이 없거나 이미 만료되었습니다. 인증번호를 다시 요청해주세요."), VERIFICATION_ATTEMPTS_EXCEEDED(HttpStatus.UNAUTHORIZED,
             "AUTH_VERIFICATION_ATTEMPTS_EXCEEDED", "인증 횟수를 초과했습니다. 다시 요청해주세요."), VERIFICATION_CODE_MISMATCH(
             HttpStatus.UNAUTHORIZED, "AUTH_VERIFICATION_CODE_MISMATCH", "인증번호가 일치하지 않습니다."), OAUTH_STATE_MISSING(
             HttpStatus.UNAUTHORIZED, "AUTH_OAUTH_STATE_MISSING", "state 누락"), OAUTH_STATE_INVALID(

@@ -96,7 +96,7 @@ public class RedisAuthStore {
                 redis.call('SET',KEYS[2],'1','EX',600)
                 return 1
                 """, Long.class), List.of("auth:" + email, "verified:" + email), code);
-        if (Long.valueOf(-1).equals(result)) throw new BusinessException(AuthError.VERIFICATION_CODE_EXPIRED);
+        if (Long.valueOf(-1).equals(result)) throw new BusinessException(AuthError.VERIFICATION_CODE_NOT_FOUND);
         if (Long.valueOf(-3).equals(result)) throw new BusinessException(AuthError.VERIFICATION_ATTEMPTS_EXCEEDED);
         if (!Long.valueOf(1).equals(result)) throw new BusinessException(AuthError.VERIFICATION_CODE_MISMATCH);
     }
