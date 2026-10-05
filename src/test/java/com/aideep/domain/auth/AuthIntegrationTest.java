@@ -211,7 +211,7 @@ class AuthIntegrationTest {
     void invalidLoginReturnsNestError() throws Exception {
         postJson("/login", new LoginRequest("legacy@example.com", "wrong"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error.errorCode").value("AUTH_PASSWORD_MISMATCH"))
+                .andExpect(jsonPath("$.error.errorCode").value("AUTH-018"))
                 .andExpect(jsonPath("$.error.reason").value("비밀번호가 일치하지 않습니다."))
                 .andExpect(jsonPath("$.error.data").value(org.hamcrest.Matchers.nullValue()));
         postJson("/login", new LoginRequest("missing@example.com", "wrong")).andExpect(status().isUnauthorized());
@@ -326,7 +326,7 @@ class AuthIntegrationTest {
         assertThat(redisAuthStore.get("auth:never-requested@example.com")).isNull();
         postJson("/email/verify", new VerifyEmailRequest("never-requested@example.com", 123456))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error.errorCode").value("AUTH_VERIFICATION_CODE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.errorCode").value("AUTH-003"))
                 .andExpect(jsonPath("$.error.reason").value("인증번호를 요청한 적이 없거나 이미 만료되었습니다. 인증번호를 다시 요청해주세요."));
     }
 

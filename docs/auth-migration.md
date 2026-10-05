@@ -47,8 +47,9 @@ JWT secret이 없거나 짧으면 시작을 거부합니다. 기존 secret이 32
 | PATCH `/password`               | JWT        | `currentPassword`(기존 비밀번호가 있으면 필수), `newPassword`(최소 4자) |
 | GET `/demo/enter?key=...`       | 데모 secret  | 매 요청마다 새 게스트를 만들고 지정 워크스페이스의 VIEWER로 참여                  |
 
-JSON은 `{resultType,error,success}` 형식을 유지합니다. 문자열 성공도 `success`에 담습니다. 인증 업무 오류는 `AuthError`에 정의된 `AUTH_상수명` 코드와 기존 HTTP
-상태·메시지를 사용하며 `error.data`는 null입니다. 인증·권한 필터 오류는 `COMMON401`·`COMMON403`, 예상하지 못한 오류는 `COMMON500`으로 통일합니다. 입력 검증 실패는
+JSON은 `{resultType,error,success}` 형식을 유지합니다. 문자열 성공도 `success`에 담습니다. 인증 업무 오류는 `AuthError`에 정의된 `AUTH-숫자`
+코드(예: `AUTH-018`)와 기존 HTTP 상태·메시지를 사용하며 `error.data`는 null입니다. 인증·권한 필터 오류는 `COMMON401`·`COMMON403`, 예상하지 못한 오류는
+`COMMON500`으로 통일합니다. 입력 검증 실패는
 HTTP 400, `VALID400`이며 `error.data`에 필드별 메시지를 담습니다. 잘못된 JSON 등 Spring MVC 오류도 전역 핸들러의 `COMMON{status}` 규약을 사용합니다. 이는 기존
 auth의 `HTTP-{status}`·`COMMON-500` 코드 및 문자열 data에서 변경된 계약이므로 프론트엔드 오류 분기를 함께 갱신해야 합니다.
 

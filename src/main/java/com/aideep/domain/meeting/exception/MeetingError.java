@@ -9,14 +9,14 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum MeetingError implements ErrorCode {
 
-    BOT_INVITATION_REJECTED(HttpStatus.BAD_REQUEST, "MEETING400", "회의 봇을 초대할 수 없습니다."),
+    BOT_INVITATION_REJECTED(HttpStatus.BAD_REQUEST, "MEETING-001", "회의 봇을 초대할 수 없습니다."),
     RECALL_UNAVAILABLE(
             HttpStatus.SERVICE_UNAVAILABLE,
-            "MEETING503",
+            "MEETING-002",
             "회의 봇 서비스에 일시적으로 연결할 수 없습니다."),
     RECALL_RESPONSE_INVALID(
             HttpStatus.BAD_GATEWAY,
-            "MEETING502",
+            "MEETING-003",
             "회의 봇 서비스의 응답이 올바르지 않습니다.");
 
     private final HttpStatus status;
