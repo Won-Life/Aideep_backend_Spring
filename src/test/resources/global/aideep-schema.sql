@@ -2,6 +2,9 @@
 -- 전체 운영 스키마 계약을 사용한다. 새 엔티티를 추가하면 이 파일도 함께 갱신한다.
 CREATE TYPE workspace_role_enum AS ENUM ('OWNER', 'EDITOR', 'VIEWER');
 CREATE TYPE node_type_enum AS ENUM ('PROJECT', 'DATA', 'RESOURCE', 'ARCHIVE');
+CREATE TYPE bot_type_enum AS ENUM ('ZOOM', 'GOOGLE', 'DISCORD');
+CREATE TYPE meeting_status_enum AS ENUM
+    ('REQUESTED', 'JOINING', 'WAITING_ROOM', 'IN_CALL_NOT_RECORDING', 'RECORDING', 'CALL_ENDED', 'DONE', 'FAILED');
 
 CREATE TABLE users
 (
@@ -87,3 +90,24 @@ CREATE TABLE node_command_results
     updated_at timestamptz NOT NULL,
     deleted_at timestamptz
 );
+
+CREATE TABLE meetings
+(
+    meeting_id      uuid PRIMARY KEY,
+    workspace_id    uuid                NOT NULL REFERENCES workspaces (workspace_id) ON DELETE CASCADE,
+    node_id         uuid                NOT NULL REFERENCES nodes (node_id) ON DELETE CASCADE,
+    user_id         uuid                NOT NULL REFERENCES users (user_id),
+    bot_id          uuid UNIQUE,
+    meeting_url     varchar(2048)       NOT NULL,
+    bot_type        bot_type_enum       NOT NULL,
+    status          meeting_status_enum NOT NULL DEFAULT 'REQUESTED',
+    status_sub_code varchar(100),
+    started_at      timestamptz,
+    ended_at        timestamptz,
+    last_event_at   timestamptz,
+    created_at      timestamptz         NOT NULL,
+    updated_at      timestamptz         NOT NULL,
+    deleted_at      timestamptz
+);
+CREATE INDEX idx_meetings_workspace_status ON meetings (workspace_id, status);
+CREATE INDEX idx_meetings_node ON meetings (node_id);
