@@ -1,12 +1,13 @@
 package com.aideep.domain.auth.service;
 
 import com.aideep.domain.auth.config.AuthProperties;
-import java.security.SecureRandom;
-import java.time.Clock;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+
+import java.security.SecureRandom;
+import java.time.Clock;
 
 @Service
 public class VerificationMailService {
@@ -36,8 +37,8 @@ public class VerificationMailService {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(authProperties.mailUser());
         message.setTo(email);
-        message.setSubject("AIdeep 메일 인증 번호");
-        message.setText("[AIdeep] 본인 확인 인증번호 [" + code + "]입니다.");
+        message.setSubject("On:Node 메일 인증 번호");
+        message.setText("[On:Node] 본인 확인 인증번호 [" + code + "]입니다.");
         javaMailSender.send(message);
     }
 }
