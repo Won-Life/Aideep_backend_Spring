@@ -2,13 +2,7 @@ package com.aideep.domain.auth;
 
 import com.aideep.domain.auth.dto.GoogleProfile;
 import com.aideep.domain.auth.dto.SignupTicket;
-import com.aideep.domain.auth.dto.request.LoginRequest;
-import com.aideep.domain.auth.dto.request.OAuthSignupRequest;
-import com.aideep.domain.auth.dto.request.PasswordRequest;
-import com.aideep.domain.auth.dto.request.RefreshRequest;
-import com.aideep.domain.auth.dto.request.SendEmailRequest;
-import com.aideep.domain.auth.dto.request.SignupRequest;
-import com.aideep.domain.auth.dto.request.VerifyEmailRequest;
+import com.aideep.domain.auth.dto.request.*;
 import com.aideep.domain.auth.dto.response.TokensResponse;
 import com.aideep.domain.auth.entity.AuthUser;
 import com.aideep.domain.auth.repository.AuthUserRepository;
@@ -55,30 +49,20 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @Testcontainers
 @SpringBootTest(properties = {
         "spring.flyway.enabled=false",
+        "node.events.enabled=false",
         "auth.jwt-secret=local-test-secret-at-least-32-bytes-long",
         "auth.frontend-url=http://frontend.test",
         "auth.google-client-id=test-client", "auth.google-client-secret=test-client-secret",
@@ -105,19 +89,6 @@ class AuthIntegrationTest {
     @Container
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
     static final FakeIdentityServers EXTERNAL = new FakeIdentityServers();
-
-    @DynamicPropertySource
-    static void settings(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-        registry.add("auth.google-token-url", () -> EXTERNAL.googleUrl() + "/token");
-        registry.add("auth.google-user-info-url", () -> EXTERNAL.googleUrl() + "/userinfo");
-        registry.add("spring.mail.port", EXTERNAL::smtpPort);
-    }
-
     @Autowired
     MockMvc mockMvc;
     @Autowired
@@ -143,6 +114,25 @@ class AuthIntegrationTest {
     @MockitoBean
     Clock clock;
 
+    @DynamicPropertySource
+    static void settings(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("spring.data.redis.username", () -> "");
+        registry.add("spring.data.redis.password", () -> "");
+        registry.add("auth.google-token-url", () -> EXTERNAL.googleUrl() + "/token");
+        registry.add("auth.google-user-info-url", () -> EXTERNAL.googleUrl() + "/userinfo");
+        registry.add("spring.mail.port", EXTERNAL::smtpPort);
+    }
+
+    @AfterAll
+    static void stopExternal() throws Exception {
+        EXTERNAL.close();
+    }
+
     @BeforeEach
     void reset() {
         when(clock.instant()).thenReturn(NOW);
@@ -156,11 +146,6 @@ class AuthIntegrationTest {
                 "Legacy", LEGACY_HASH);
         jdbcTemplate.update("insert into workspaces(workspace_id) values (?)", WORKSPACE);
         EXTERNAL.reset();
-    }
-
-    @AfterAll
-    static void stopExternal() throws Exception {
-        EXTERNAL.close();
     }
 
     @Test
@@ -178,7 +163,7 @@ class AuthIntegrationTest {
                 TokensResponse.class);
         Jwt access = jwtTokenService.decode(pair.accessToken());
         assertThat(access.getClaimAsString("user_id")).isEqualTo(USER.toString());
-        assertThat(access.getClaimAsString("userName")).isEqualTo("Legacy");
+        assertThat(access.getClaims()).doesNotContainKey("userName");
         assertThat(access.getExpiresAt()).isEqualTo(NOW.plusSeconds(900));
         assertThat(jwtTokenService.decode(pair.refreshToken()).getExpiresAt()).isEqualTo(NOW.plusSeconds(604800));
         assertThat(access.getClaims()).doesNotContainKeys("jti", "token_use", "type", "sub");
@@ -194,13 +179,13 @@ class AuthIntegrationTest {
     @Test
     void userDetailUsesLatestDatabaseValuesAndRemainsCurrentUserCompatible() throws Exception {
         TokensResponse tokensResponse = pair();
-        jdbcTemplate.update("update users set username=?, email=?, updated_at=? where user_id=?",
-                "Updated User", "updated@example.com", Timestamp.from(NOW.plusSeconds(60)), USER);
+        jdbcTemplate.update("update users set email=?, updated_at=? where user_id=?",
+                "updated@example.com", Timestamp.from(NOW.plusSeconds(60)), USER);
 
         mockMvc.perform(get("/test/detail").header("Authorization", "Bearer " + tokensResponse.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success.user_id").value(USER.toString()))
-                .andExpect(jsonPath("$.success.user_name").value("Updated User"))
+                .andExpect(jsonPath("$.success.user_name").doesNotExist())
                 .andExpect(jsonPath("$.success.email").value("updated@example.com"));
         mockMvc.perform(get("/test/protected").header("Authorization", "Bearer " + tokensResponse.accessToken()))
                 .andExpect(status().isOk())
@@ -307,7 +292,7 @@ class AuthIntegrationTest {
         redisAuthStore.delete("masterToken:" + USER);
         mockMvc.perform(get("/test/master").header("Authorization", "Bearer " + master))
                 .andExpect(status().isUnauthorized());
-        authDatabase.createUser("other@example.com", "Other", LEGACY_HASH);
+        authDatabase.createUser("other@example.com", LEGACY_HASH);
         postJson("/issue/master", new LoginRequest("other@example.com", "legacy-password")).andExpect(
                 status().isForbidden());
     }
@@ -328,7 +313,7 @@ class AuthIntegrationTest {
                 status().isCreated());
         assertThat(redisAuthStore.get("auth:new@example.com")).isNull();
         assertThat(stringRedisTemplate.getExpire("verified:new@example.com")).isBetween(595L, 600L);
-        SignupRequest signup = new SignupRequest("new@example.com", "new-password", "New User", "01012345678");
+        SignupRequest signup = new SignupRequest("new@example.com", "new-password");
         postJson("/signup", signup).andExpect(status().isCreated()).andExpect(jsonPath("$.success").value("회원가입 성공"));
         assertThat(passwordEncoder.matches("new-password",
                 authUserRepository.findByEmail("new@example.com").orElseThrow().getPassword())).isTrue();
@@ -351,7 +336,7 @@ class AuthIntegrationTest {
         assertThat(redisAuthStore.get("auth:new@example.com")).isNull();
         postJson("/email/verify", new VerifyEmailRequest("new@example.com", 123456)).andExpect(
                 status().isUnauthorized());
-        postJson("/signup", new SignupRequest("new@example.com", "password", "New", "")).andExpect(
+        postJson("/signup", new SignupRequest("new@example.com", "password")).andExpect(
                 status().isForbidden());
     }
 
@@ -454,7 +439,7 @@ class AuthIntegrationTest {
     @Test
     void lastAuthenticationMethodCannotBeRemovedAndPasswordCanBeSet() throws Exception {
         AuthUser user = authDatabase.createOAuthUser(
-                new SignupTicket("google", "only-google", "oauth@example.com", "OAuth"), "OAuth");
+                new SignupTicket("google", "only-google", "oauth@example.com", "OAuth"));
         String token = authService.issue(AuthService.identity(user)).accessToken();
         mockMvc.perform(delete(BASE + "/oauth/link/google").header("Authorization", "Bearer " + token))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.error.reason").value("LAST_AUTH_METHOD"));
@@ -488,7 +473,7 @@ class AuthIntegrationTest {
     void oauthSignupUniqueConflictRollsBackUser() {
         authDatabase.link(USER, new GoogleProfile("existing-subject", "legacy@example.com", "Legacy"));
         assertThatThrownBy(() -> authDatabase.createOAuthUser(
-                new SignupTicket("google", "existing-subject", "rollback@example.com", "Rollback"), "Rollback"))
+                new SignupTicket("google", "existing-subject", "rollback@example.com", "Rollback")))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
         assertThat(authUserRepository.findByEmail("rollback@example.com")).isEmpty();
     }
@@ -553,7 +538,7 @@ class AuthIntegrationTest {
 
         @GetMapping("/test/detail")
         Map<String, String> detail(@AuthenticationPrincipal UserDetail userDetail) {
-            return Map.of("user_id", userDetail.userId().toString(), "user_name", userDetail.userName(),
+            return Map.of("user_id", userDetail.userId().toString(),
                     "email", userDetail.email());
         }
 
