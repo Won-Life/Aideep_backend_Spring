@@ -359,6 +359,120 @@ Pub/Sub은 영속 큐가 아니므로 DB 커밋 직후 프로세스 종료, Redi
    화면 변경을 확인한다. 같은 eventId를 다시 보내도 추가 이벤트가 없어야 한다.
 4. 다른 워크스페이스의 클라이언트에는 이벤트가 전달되지 않는지 확인한다. 에디터의 Yjs 동기화는 이 검증 대상이 아니다.
 
+## 구현된 결과 이벤트(백엔드→AI) 계약
+
+백엔드가 처리한 노드 명령의 최종 결과(성공/실패)를 AI 서버에 Redis Stream으로 통지한다. 입력 스트림, WS Pub/Sub,
+DLQ 계약은 이 섹션으로 변경되지 않는다.
+
+### 스트림과 Redis 필드
+
+| 용도 | Redis key | 저장 형식 |
+|---|---|---|
+| 명령 처리 결과 | `onnode:ai:command-results:v1` | Stream entry의 `data` 필드에 결과 JSON 문자열 저장 |
+
+### envelope와 payload
+
+```json
+{
+  "version": 1,
+  "eventId": "99999999-9999-4999-8999-999999999999",
+  "eventType": "NODE_CREATE_SUCCEEDED",
+  "occurredAt": "2026-09-21T03:30:05Z",
+  "workspaceId": "22222222-2222-4222-8222-222222222222",
+  "payload": {
+    "commandEventId": "11111111-1111-4111-8111-111111111111",
+    "commandEventType": "NODE_CREATE_REQUESTED",
+    "result": {
+      "nodeId": "55555555-5555-4555-8555-555555555555",
+      "nodeVersion": 1
+    }
+  }
+}
+```
+
+```json
+{
+  "version": 1,
+  "eventId": "88888888-8888-4888-8888-888888888888",
+  "eventType": "NODE_PATCH_FAILED",
+  "occurredAt": "2026-09-21T03:35:05Z",
+  "workspaceId": "22222222-2222-4222-8222-222222222222",
+  "payload": {
+    "commandEventId": "44444444-4444-4444-8444-444444444444",
+    "commandEventType": "NODE_PATCH_REQUESTED",
+    "error": {
+      "code": "NODE-009",
+      "message": "노드 버전이 일치하지 않습니다.",
+      "details": {"nodeId": "55555555-5555-4555-8555-555555555555", "expectedVersion": 7, "currentVersion": 9}
+    }
+  }
+}
+```
+
+| 필드 | 해석 |
+|---|---|
+| `eventId` | 결과 이벤트 자체의 UUID다. 저장·재발행에도 동일 값을 유지하는 안정적 키다. 원본 명령의 `eventId`가 아니다. |
+| `eventType` | `NODE_CREATE_SUCCEEDED`, `NODE_CREATE_FAILED`, `NODE_PATCH_SUCCEEDED`, `NODE_PATCH_FAILED` 중 하나다. |
+| `occurredAt` | 결과가 **최종 확정된 시각**이다(재발행 시에도 바뀌지 않는다). |
+| `payload.commandEventId`/`commandEventType` | 원본 명령의 `eventId`/`eventType`이다. |
+| `payload.result` | 성공일 때만 존재하며 `nodeId`, `nodeVersion`을 담는다. |
+| `payload.error` | 실패일 때만 존재하며 `code`(`NodeError`), `message`, `details`를 담는다. stale 버전(`NODE-009`)은 `details`에 `nodeId`/`expectedVersion`/`currentVersion`을 포함한다. 다른 실패는 `details`가 빈 객체일 수 있다. |
+
+### 영속성과 발행 (Outbox)
+
+- `node_command_results` 테이블(`command_event_id` unique, `data` 텍스트 JSON, `published_at`)에 결과를 저장한다.
+  성공은 `NodeCommandService.apply`의 노드 변경과 **같은 트랜잭션**에서 저장한다. 실패는 `NodeCommandResultService`가
+  별도 트랜잭션에서 저장하며, `RedisNodeEventConsumer`는 DLQ 기록/ACK **전에** 이 저장을 완료한다.
+- ACK는 결과 저장 완료 이후에만 보낸다. 재시도 중인 일시적 실패는 결과를 기록하지 않는다(최종 결과가 아니므로).
+- `NodeCommandResultPublisher`(`SmartLifecycle`)가 설정된 주기(`node.results.publish-interval`, 기본 1초)로
+  `published_at is null`인 행을 `SELECT ... FOR UPDATE SKIP LOCKED`로 하나씩 잠그고 `XADD` 후 `published_at`을 채우는
+  트랜잭션을 실행한다. `XADD` 실패 시 트랜잭션이 롤백되어 다음 주기 또는 다른 인스턴스가 같은 불변 JSON을 재시도한다.
+  이는 설계상 **최소 한 번(at-least-once) 발행**이며, AI 서버는 `eventId` 기준으로 멱등 처리해야 한다.
+- `node.results` 설정: `enabled`, `streamKey`(기본 `onnode:ai:command-results:v1`), `publishInterval`, `batchSize`.
+
+### 동일 명령 재요청(멱등) 시 재전달
+
+- 같은 `commandEventId`로 다시 명령이 오면 노드를 다시 바꾸거나 새 결과를 만들지 않는다. 기존
+  `node_command_results` 행을 찾아 `published_at`을 다시 `null`로 돌려 **원본 결과를 그대로 재발행**하도록 요청한다.
+  AI 서버는 Stream에서 동일 `eventId`의 결과를 다시 받을 수 있으며 이는 중복이 아니라 재전달이다.
+- 한 번 실패로 확정된 `commandEventId`는 다시 실행되지 않는다. `NodeCommandService.apply`는 저장된 결과에 `error`가
+  있으면 같은 `NodeError`로 즉시 재실패시키고(노드도 다시 건드리지 않는다), `NodeEventWorker`는 이를 바로 영구
+  실패로 분류해 DLQ 경로로 보낸다(원본 Throwable이 `TerminalNodeCommandFailure`를 지니면 `NODE-011`이어도 재시도하지
+  않는다).
+- `V3__add_node_command_results.sql` 이전에 처리된 `eventId`(즉 `processed_node_events`에만 존재)는 재구성 가능한
+  과거 결과가 없으므로 `NodeCommandResultService.recordFailure`가 결과를 만들지 않고 `false`를 반환한다. 이 경우
+  consumer는 DLQ에 기록하지 않고 조용히 ACK한다(이미 성공한 명령을 실패로 둔갑시키지 않는다).
+
+### 레이스 보호: 이미 성공한 명령이 실패로 뒤집히지 않도록
+
+- `recordFailure`는 저장 직전에 `command_event_id` unique 제약과 비관적 조회로 기존 행을 다시 확인한다. 같은
+  `eventId`의 성공 결과가 이미 있으면(동시 재시도 중 다른 스레드가 먼저 커밋한 경우) 실패를 기록하지 않고 `false`를
+  반환하며, `RedisNodeEventConsumer`는 이 경우 DLQ에 쓰지 않고 그대로 ACK한다.
+- `Node` patch 경로는 `NodeRepository.findByIdAndWorkspaceIdAndDeletedAtIsNull`에 `PESSIMISTIC_WRITE`를 사용해
+  같은 노드에 대한 동시 patch가 뒤섞여 lost update를 만들지 않게 한다. 동시에 같은 `expectedVersion`으로 들어온
+  두 patch 중 하나만 성공하고 다른 하나는 `NODE-009`로 영구 실패한다.
+
+### 알려진 한계와 운영 주의점
+
+- outbox 발행은 at-least-once이므로 Redis/프로세스 장애 시 같은 결과가 중복 발행될 수 있다. AI 서버는 `eventId`로
+  멱등 처리해야 한다.
+- `published_at`을 `null`로 되돌리는 재발행 요청과 `NodeCommandResultPublisher`의 조회가 동시에 실행되면 극히 짧은
+  창에서 한 번 더 발행될 수 있다(at-least-once 설계상 허용).
+- 과거(V3 적용 전) 명령에 대한 재요청은 결과를 재구성할 수 없어 DLQ에도 결과 스트림에도 나타나지 않고 조용히
+  ACK된다. 운영팀은 이 동작을 알고 있어야 한다.
+
+### 테스트 기준(결과 이벤트)
+
+`NodeCommandServiceIntegrationTest`, `NodeRealtimeEventIntegrationTest`, `NodeCommandResultPublisherIntegrationTest`에서
+다음을 Testcontainers PostgreSQL/Redis로 검증한다.
+
+- 성공 결과가 노드 변경과 같은 트랜잭션에 저장되고 재요청에도 안정적으로 유지됨
+- 실패 결과(계약 위반, stale 버전, 알 수 없는 workspace)가 DLQ 기록/ACK 전에 저장됨
+- 같은 `commandEventId` 재요청이 노드를 바꾸지 않고 원본 결과를 재발행 요청함
+- 이미 성공한 명령이 동시 레이스에서 실패로 덮이지 않음(DLQ 미기록, 결과 불변)
+- `node_command_results` outbox를 `NodeCommandResultPublisher`가 비동기로 `onnode:ai:command-results:v1`에 발행함
+- 동시 patch 중 하나만 성공하고 다른 하나는 `NODE-009`로 실패함
+
 ## 미결정 사항
 
 아래는 팀 합의가 필요한 항목이다. 5~9번은 구현에서 잠정 결정했으므로 AI 서버와 계약을 맞출 때 재확인한다.
