@@ -4,6 +4,7 @@ import com.aideep.domain.auth.config.AuthProperties;
 import com.aideep.domain.auth.dto.Identity;
 import com.aideep.domain.auth.dto.request.LoginRequest;
 import com.aideep.domain.auth.dto.request.PasswordRequest;
+import com.aideep.domain.auth.dto.request.SetOnboard;
 import com.aideep.domain.auth.dto.request.SignupRequest;
 import com.aideep.domain.auth.dto.response.TokensResponse;
 import com.aideep.domain.auth.entity.AuthUser;
@@ -11,6 +12,7 @@ import com.aideep.domain.auth.exception.AuthError;
 import com.aideep.domain.auth.repository.AuthUserRepository;
 import com.aideep.domain.auth.security.CurrentUser;
 import com.aideep.domain.onboarding.dto.TermConsent;
+import com.aideep.domain.onboarding.service.UserOnboardingProfileService;
 import com.aideep.global.exception.BusinessException;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -31,19 +33,21 @@ public class AuthService {
     private final RedisAuthStore redisAuthStore;
     private final JwtTokenService jwtTokenService;
     private final PasswordEncoder passwordEncoder;
+    private final UserOnboardingProfileService userOnboardingProfileService;
     private final AuthProperties authProperties;
     private final Environment environment;
     private final Clock clock;
 
     public AuthService(AuthUserRepository authUserRepository, OAuthService.AuthDatabase authDatabase,
                        RedisAuthStore redisAuthStore, JwtTokenService jwtTokenService,
-                       PasswordEncoder passwordEncoder, AuthProperties authProperties,
-                       Environment environment, Clock clock) {
+                       PasswordEncoder passwordEncoder, UserOnboardingProfileService userOnboardingProfileService,
+                       AuthProperties authProperties, Environment environment, Clock clock) {
         this.authUserRepository = authUserRepository;
         this.authDatabase = authDatabase;
         this.redisAuthStore = redisAuthStore;
         this.jwtTokenService = jwtTokenService;
         this.passwordEncoder = passwordEncoder;
+        this.userOnboardingProfileService = userOnboardingProfileService;
         this.authProperties = authProperties;
         this.environment = environment;
         this.clock = clock;
@@ -115,5 +119,16 @@ public class AuthService {
                 throw new BusinessException(AuthError.CURRENT_PASSWORD_MISMATCH);
         }
         user.changePassword(passwordEncoder.encode(body.newPassword()), clock.instant());
+    }
+
+    @Transactional
+    public void setOnboard(SetOnboard body, UUID userId) {
+        AuthUser user = authUserRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(AuthError.USER_NOT_FOUND));
+        // 구글 가입자는 가입 시점에 닉네임이 들어가므로, 요청에 없으면 기존 닉네임을 유지한다.
+        if (body.userName() != null && !body.userName().isBlank()) {
+            user.changeUsername(body.userName(), clock.instant());
+        }
+        userOnboardingProfileService.save(userId, body.usageProposal(), body.meeting());
     }
 }

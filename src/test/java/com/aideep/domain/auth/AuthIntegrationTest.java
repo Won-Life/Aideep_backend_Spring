@@ -532,6 +532,52 @@ class AuthIntegrationTest {
         assertThat(result.getResponse().getCookies()).isEmpty();
     }
 
+    @Test
+    void onboardStoresNicknameAndSurveyAnswersForCurrentUser() throws Exception {
+        String token = pair().accessToken();
+
+        mockMvc.perform(post(BASE + "/onboard").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"userName":"온보딩 유저","usageProposal":"TEAM_PROJECT",
+                                 "meeting":["ZOOM","GOOGLE_MEET"]}
+                                """))
+                .andExpect(status().isCreated());
+
+        assertThat(authUserRepository.findById(USER).orElseThrow().getUsername()).isEqualTo("온보딩 유저");
+        assertThat(jdbcTemplate.queryForObject(
+                "select usage_purpose::text from user_onboarding_profiles where user_id=?", String.class, USER))
+                .isEqualTo("TEAM_PROJECT");
+        assertThat(jdbcTemplate.queryForObject(
+                "select array_to_string(meeting_platforms, ',') from user_onboarding_profiles where user_id=?",
+                String.class, USER)).isEqualTo("ZOOM,GOOGLE_MEET");
+
+        // 다시 보내도 프로필은 한 행만 유지하고 답변만 갱신한다.
+        mockMvc.perform(post(BASE + "/onboard").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"usageProposal":"COMPANY_WORK","meeting":[]}
+                                """))
+                .andExpect(status().isCreated());
+
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from user_onboarding_profiles where user_id=?", Integer.class, USER)).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select usage_purpose::text from user_onboarding_profiles where user_id=?", String.class, USER))
+                .isEqualTo("COMPANY_WORK");
+        assertThat(authUserRepository.findById(USER).orElseThrow().getUsername())
+                .as("닉네임을 보내지 않으면 기존 닉네임을 유지한다").isEqualTo("온보딩 유저");
+    }
+
+    @Test
+    void onboardRequiresAuthentication() throws Exception {
+        mockMvc.perform(post(BASE + "/onboard").contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"usageProposal":"OTHER","meeting":[]}
+                                """))
+                .andExpect(status().isUnauthorized());
+    }
+
     private TokensResponse pair() {
         return authService.login(new LoginRequest("legacy@example.com", "legacy-password"));
     }

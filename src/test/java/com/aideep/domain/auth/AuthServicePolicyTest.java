@@ -30,6 +30,7 @@ class AuthServicePolicyTest {
             mockEnvironment.setActiveProfiles(profiles);
             var authService = new AuthService(authUserRepository, mock(OAuthService.AuthDatabase.class), redisAuthStore,
                     jwtTokenService, passwordEncoder,
+                    mock(com.aideep.domain.onboarding.service.UserOnboardingProfileService.class),
                     JwtTokenServiceTest.properties(JwtTokenServiceTest.SECRET), mockEnvironment, Clock.systemUTC());
         }
         verifyNoInteractions(jwtTokenService, redisAuthStore);

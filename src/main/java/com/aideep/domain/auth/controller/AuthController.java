@@ -7,6 +7,7 @@ import com.aideep.domain.auth.dto.request.OAuthSignupRequest;
 import com.aideep.domain.auth.dto.request.PasswordRequest;
 import com.aideep.domain.auth.dto.request.RefreshRequest;
 import com.aideep.domain.auth.dto.request.SendEmailRequest;
+import com.aideep.domain.auth.dto.request.SetOnboard;
 import com.aideep.domain.auth.dto.request.SignupRequest;
 import com.aideep.domain.auth.dto.request.VerifyEmailRequest;
 import com.aideep.domain.auth.dto.response.MailSentResponse;
@@ -14,6 +15,7 @@ import com.aideep.domain.auth.dto.response.OAuthLinkResponse;
 import com.aideep.domain.auth.dto.response.TokensResponse;
 import com.aideep.domain.auth.exception.AuthError;
 import com.aideep.domain.auth.security.CurrentUser;
+import com.aideep.domain.auth.security.UserDetail;
 import com.aideep.domain.auth.service.AuthService;
 import com.aideep.domain.auth.service.OAuthService;
 import com.aideep.domain.auth.service.RedisAuthStore;
@@ -90,6 +92,16 @@ public class AuthController {
     public ResponseHandler<String> signup(@Valid @RequestBody SignupRequest body) {
         authService.signup(body);
         return ResponseHandler.success("회원가입 성공");
+    }
+
+    @PostMapping("/onboard")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "온보딩 내용 저장")
+    public ResponseHandler<String> setOnborad(
+            @AuthenticationPrincipal UserDetail userDetail,
+            @Valid @RequestBody SetOnboard body) {
+        authService.setOnboard(body, userDetail.userId());
+        return ResponseHandler.success("온보딩 내용 저장");
     }
 
     @PostMapping("/email/send")
