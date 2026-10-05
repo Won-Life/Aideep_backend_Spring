@@ -63,6 +63,10 @@ public class NodeCommandResultPublisher implements SmartLifecycle {
                     if (recordId == null) {
                         throw new IllegalStateException("Result XADD returned no record ID");
                     }
+                    // XADD acceptance only: this does not imply AI consumption or outbox transaction commit.
+                    log.info("Node command result published. stream={} entryId={} eventId={} commandEventId={}",
+                            nodeResultProperties.streamKey(), recordId.getValue(), result.getId(),
+                            result.getCommandEventId());
                     result.markPublished(clock.instant());
                     return true;
                 });
