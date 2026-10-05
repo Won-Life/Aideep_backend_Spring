@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aideep.domain.auth.exception.AuthError;
 import com.aideep.domain.meeting.exception.MeetingError;
 import com.aideep.domain.node.exception.NodeError;
+import com.aideep.domain.onboarding.exception.OnboardingError;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -29,6 +30,11 @@ class DomainErrorCodeFormatTest {
     @Test
     void nodeErrorCodesFollowDomainNumberFormat() {
         assertCodesFollowConvention(NodeError.values(), "NODE");
+    }
+
+    @Test
+    void onboardingErrorCodesFollowDomainNumberFormat() {
+        assertCodesFollowConvention(OnboardingError.values(), "ONBOARDING");
     }
 
     private void assertCodesFollowConvention(ErrorCode[] errorCodes, String domainPrefix) {
