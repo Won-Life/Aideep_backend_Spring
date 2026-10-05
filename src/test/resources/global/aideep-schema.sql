@@ -5,6 +5,8 @@ CREATE TYPE node_type_enum AS ENUM ('PROJECT', 'DATA', 'RESOURCE', 'ARCHIVE');
 CREATE TYPE bot_type_enum AS ENUM ('ZOOM', 'GOOGLE', 'DISCORD');
 CREATE TYPE meeting_status_enum AS ENUM
     ('REQUESTED', 'JOINING', 'WAITING_ROOM', 'IN_CALL_NOT_RECORDING', 'RECORDING', 'CALL_ENDED', 'DONE', 'FAILED');
+CREATE TYPE usage_purpose_enum AS ENUM ('TEAM_PROJECT', 'SIDE_PROJECT', 'STUDY_CLUB', 'COMPANY_WORK', 'OTHER');
+CREATE TYPE term_agreement_type_enum AS ENUM ('TERMS_OF_SERVICE', 'PRIVACY_POLICY', 'MARKETING');
 
 CREATE TABLE users
 (
@@ -111,3 +113,30 @@ CREATE TABLE meetings
 );
 CREATE INDEX idx_meetings_workspace_status ON meetings (workspace_id, status);
 CREATE INDEX idx_meetings_node ON meetings (node_id);
+
+CREATE TABLE user_onboarding_profiles
+(
+    user_onboarding_profile_id uuid PRIMARY KEY,
+    user_id                    uuid          NOT NULL UNIQUE REFERENCES users (user_id) ON DELETE CASCADE,
+    usage_purpose              usage_purpose_enum,
+    meeting_platforms          varchar(32)[] NOT NULL DEFAULT '{}',
+    completed_at               timestamptz,
+    created_at                 timestamptz   NOT NULL,
+    updated_at                 timestamptz   NOT NULL,
+    deleted_at                 timestamptz
+);
+
+CREATE TABLE user_term_agreements
+(
+    user_term_agreement_id uuid PRIMARY KEY,
+    user_id                uuid                     NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+    term_type              term_agreement_type_enum NOT NULL,
+    agreed                 boolean                  NOT NULL DEFAULT false,
+    agreed_at              timestamptz,
+    revoked_at             timestamptz,
+    created_at             timestamptz              NOT NULL,
+    updated_at             timestamptz              NOT NULL,
+    deleted_at             timestamptz,
+    CONSTRAINT uq_user_term_agreements_user_term UNIQUE (user_id, term_type)
+);
+CREATE INDEX idx_user_term_agreements_user ON user_term_agreements (user_id);
