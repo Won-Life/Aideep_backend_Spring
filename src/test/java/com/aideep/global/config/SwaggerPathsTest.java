@@ -10,7 +10,6 @@ import com.aideep.domain.auth.service.JwtTokenService;
 import com.aideep.domain.auth.service.OAuthService;
 import com.aideep.domain.auth.service.RedisAuthStore;
 import com.aideep.domain.auth.service.VerificationMailService;
-import com.aideep.domain.user.controller.UserController;
 import org.junit.jupiter.api.Test;
 import org.springdoc.core.configuration.SpringDocConfiguration;
 import org.springdoc.core.properties.SpringDocConfigProperties;
@@ -26,13 +25,12 @@ import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest({AuthController.class, UserController.class})
+@WebMvcTest(AuthController.class)
 @Import({SwaggerConfig.class, SecurityConfig.class})
 @ImportAutoConfiguration({SpringDocConfiguration.class, SpringDocConfigProperties.class,
         SpringDocWebMvcConfiguration.class})
@@ -62,7 +60,7 @@ class SwaggerPathsTest {
         for (int i = 0; i < 2; i++) {
             String document = mockMvc.perform(get("/v3/api-docs"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.paths['/user/user'].get").exists())
+                    .andExpect(jsonPath("$.paths['/user/user']").doesNotExist())
                     .andExpect(jsonPath("$.paths['/auth/login'].post.responses['201']").exists())
                     .andExpect(jsonPath("$.paths['/auth/oauth/link/{provider}'].delete").exists())
                     .andExpect(jsonPath("$.paths['/v1/api/aideep/user/user']").doesNotExist())
@@ -70,9 +68,7 @@ class SwaggerPathsTest {
                     .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
                     .andReturn().getResponse().getContentAsString();
             var jsonNode = objectMapper.readTree(document);
-            String userServerUrl = jsonNode.at("/servers/0/url").asString();
             String authServerUrl = jsonNode.get("paths").get("/auth/login").at("/servers/0/url").asString();
-            assertThat(userServerUrl + "/user/user").isEqualTo("http://localhost/v1/api/aideep/user/user");
             assertThat(authServerUrl + "/auth/login").isEqualTo("http://localhost/v1/aideep/api/auth/login");
         }
 
@@ -82,8 +78,5 @@ class SwaggerPathsTest {
                         .content("{\"email\":\"user@example.com\",\"password\":\"password\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success.accessToken").value("access"));
-        mockMvc.perform(get("/v1/api/aideep/user/user").with(user("tester")))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.errorCode").value("USER1"));
     }
 }

@@ -1,7 +1,6 @@
 package com.aideep.global.config;
 
 import com.aideep.domain.auth.repository.AuthUserRepository;
-import com.aideep.domain.user.controller.UserController;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,9 +21,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(UserController.class)
-@Import(SecurityConfig.class)
+@WebMvcTest(SecurityResponseTest.TestController.class)
+@Import({SecurityConfig.class, SecurityResponseTest.TestController.class})
 class SecurityResponseTest {
+    @org.springframework.web.bind.annotation.RestController
+    static class TestController {
+        @org.springframework.web.bind.annotation.GetMapping("/private")
+        String privateEndpoint() {
+            return "ok";
+        }
+    }
+
     @org.springframework.test.context.bean.override.mockito.MockitoBean
     com.aideep.domain.auth.service.JwtTokenService jwtTokenService;
     @org.springframework.test.context.bean.override.mockito.MockitoBean
@@ -63,7 +70,7 @@ class SecurityResponseTest {
                         java.util.UUID.fromString("11111111-1111-4111-8111-111111111111")))
                 .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("test database unavailable"));
 
-        mockMvc.perform(get("/v1/api/aideep/user/user").header("Authorization", "Bearer test-token"))
+        mockMvc.perform(get("/private").header("Authorization", "Bearer test-token"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error.errorCode").value("COMMON500"));
     }
@@ -113,13 +120,6 @@ class SecurityResponseTest {
                 .andExpect(jsonPath("$.error.reason").value("접근 권한이 없습니다."))
                 .andExpect(jsonPath("$.error.data").value(nullValue()))
                 .andExpect(jsonPath("$.success").value(nullValue()));
-    }
-
-    @Test
-    void authenticatedUserEndpointKeepsBusinessError() throws Exception {
-        mockMvc.perform(get("/v1/api/aideep/user/user").with(user("tester")))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.errorCode").value("USER1"));
     }
 
     @Test
