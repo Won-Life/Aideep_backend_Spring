@@ -12,7 +12,7 @@ public final class UserDetail extends CurrentUser {
     private final Instant updatedAt;
 
     private UserDetail(AuthUser authUser, boolean master) {
-        super(authUser.getId(), authUser.getUsername(), authUser.getEmail(), master);
+        super(authUser.getId(), authUser.getEmail(), master);
         this.createdAt = authUser.getCreatedAt();
         this.updatedAt = authUser.getUpdatedAt();
     }

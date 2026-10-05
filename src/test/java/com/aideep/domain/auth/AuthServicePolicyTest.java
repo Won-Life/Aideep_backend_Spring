@@ -13,9 +13,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.time.Clock;
 import java.util.Optional;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 class AuthServicePolicyTest {
     @Test
@@ -24,7 +22,7 @@ class AuthServicePolicyTest {
         var passwordEncoder = mock(PasswordEncoder.class);
         var jwtTokenService = mock(JwtTokenService.class);
         var redisAuthStore = mock(RedisAuthStore.class);
-        var user = new AuthUser("user@example.com", "User", "hash", java.time.Instant.now());
+        var user = new AuthUser("user@example.com", "hash", java.time.Instant.now());
         when(authUserRepository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("password", "hash")).thenReturn(true);
         for (String[] profiles : new String[][]{{"prod"}, {"dev", "prod"}, {"production"}, {"test"}}) {

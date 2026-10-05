@@ -104,7 +104,7 @@ public class OAuthService {
         if (ticket == null) throw new BusinessException(AuthError.SIGNUP_TICKET_INVALID);
         AuthUser user;
         try {
-            user = authDatabase.createOAuthUser(ticket, body.username());
+            user = authDatabase.createOAuthUser(ticket);
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(AuthError.OAUTH_SIGNUP_CONFLICT);
         }
@@ -136,13 +136,13 @@ public class OAuthService {
         }
 
         @Transactional
-        public AuthUser createUser(String email, String name, String password) {
-            return authUserRepository.saveAndFlush(new AuthUser(email, name, password, clock.instant()));
+        public AuthUser createUser(String email, String password) {
+            return authUserRepository.saveAndFlush(new AuthUser(email, password, clock.instant()));
         }
 
         @Transactional
-        public AuthUser createOAuthUser(SignupTicket ticket, String username) {
-            AuthUser user = createUser(ticket.email(), username, null);
+        public AuthUser createOAuthUser(SignupTicket ticket) {
+            AuthUser user = createUser(ticket.email(), null);
             oAuthAccountRepository.saveAndFlush(
                     new OAuthAccount(user.getId(), ticket.provider(), ticket.providerUserId(), ticket.email(),
                             clock.instant()));
@@ -183,7 +183,7 @@ public class OAuthService {
                     "select workspace_id from workspaces where workspace_id=? and deleted_at is null for key share",
                     UUID.class, workspaceId);
             if (workspaces.isEmpty()) throw new BusinessException(AuthError.DEMO_WORKSPACE_NOT_CONFIGURED);
-            AuthUser guest = createUser(email, name, password);
+            AuthUser guest = createUser(email, password);
             jdbcTemplate.update(
                     "insert into users_workspaces (user_id, workspace_id, role) values (?, ?, cast(? as workspace_role_enum))",
                     guest.getId(), workspaceId, "VIEWER");

@@ -46,7 +46,7 @@ public class JwtTokenService {
         Jwt jwt = nimbusJwtDecoder.decode(token);
         try {
             UUID.fromString(jwt.getClaimAsString("user_id"));
-            if (jwt.getClaimAsString("email") == null || jwt.getClaimAsString("userName") == null
+            if (jwt.getClaimAsString("email") == null
                     || jwt.getExpiresAt() == null || !jwt.getExpiresAt().isAfter(clock.instant()))
                 throw new IllegalArgumentException();
             Object master = jwt.getClaims().get("isMaster");
@@ -64,7 +64,7 @@ public class JwtTokenService {
     private String sign(Identity user, Duration lifetime, boolean master) {
         Instant now = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
         var claims = JwtClaimsSet.builder().issuedAt(now).expiresAt(now.plus(lifetime))
-                .claim("userName", user.userName()).claim("email", user.email()).claim("user_id", user.user_id());
+                .claim("email", user.email()).claim("user_id", user.user_id());
         if (master) claims.claim("isMaster", true);
         return jwtEncoder.encode(
                         JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).type("JWT").build(), claims.build()))
@@ -72,7 +72,7 @@ public class JwtTokenService {
     }
 
     public Identity identity(Jwt jwt) {
-        return new Identity(jwt.getClaimAsString("userName"), jwt.getClaimAsString("email"),
+        return new Identity(jwt.getClaimAsString("email"),
                 jwt.getClaimAsString("user_id"));
     }
 }

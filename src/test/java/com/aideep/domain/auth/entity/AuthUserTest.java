@@ -1,10 +1,10 @@
 package com.aideep.domain.auth.entity;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class AuthUserTest {
     private static final Instant CREATED_AT = Instant.parse("2026-09-21T00:00:00Z");
@@ -12,7 +12,7 @@ class AuthUserTest {
 
     @Test
     void createsCommonEntityFields() {
-        AuthUser authUser = new AuthUser("user@example.com", "user", "password", CREATED_AT);
+        AuthUser authUser = new AuthUser("user@example.com", "password", CREATED_AT);
 
         assertThat(authUser.getId()).isNotNull();
         assertThat(authUser.getCreatedAt()).isEqualTo(CREATED_AT);
@@ -22,7 +22,7 @@ class AuthUserTest {
 
     @Test
     void changesPasswordAndUpdateTimestamp() {
-        AuthUser authUser = new AuthUser("user@example.com", "user", "old-password", CREATED_AT);
+        AuthUser authUser = new AuthUser("user@example.com", "old-password", CREATED_AT);
 
         authUser.changePassword("new-password", UPDATED_AT);
 

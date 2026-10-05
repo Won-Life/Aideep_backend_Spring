@@ -1,0 +1,1 @@
+ALTER TABLE aideep.users ALTER COLUMN username DROP NOT NULL;

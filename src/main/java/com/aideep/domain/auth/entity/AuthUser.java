@@ -16,7 +16,7 @@ import java.time.Instant;
 public class AuthUser extends BaseEntity {
     @Column(nullable = false, unique = true, length = 255)
     private String email;
-    @Column(nullable = false, length = 100)
+    @Column(length = 100)
     private String username;
     @Column(length = 255)
     private String password;
@@ -24,10 +24,9 @@ public class AuthUser extends BaseEntity {
     protected AuthUser() {
     }
 
-    public AuthUser(String email, String username, String password, Instant now) {
+    public AuthUser(String email, String password, Instant now) {
         super(now);
         this.email = email;
-        this.username = username;
         this.password = password;
     }
 

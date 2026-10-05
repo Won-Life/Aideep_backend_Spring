@@ -48,6 +48,10 @@ public class AuthService {
         this.clock = clock;
     }
 
+    public static Identity identity(AuthUser user) {
+        return new Identity(user.getEmail(), user.getId().toString());
+    }
+
     public Identity authenticate(LoginRequest body) {
         var user = authUserRepository.findByEmail(body.email())
                 .orElseThrow(() -> new BusinessException(AuthError.LOGIN_USER_NOT_FOUND));
@@ -91,7 +95,7 @@ public class AuthService {
         if (redisAuthStore.get("verified:" + body.email()) == null)
             throw new BusinessException(AuthError.EMAIL_UNVERIFIED);
         try {
-            authDatabase.createUser(body.email(), body.name(), passwordEncoder.encode(body.password()));
+            authDatabase.createUser(body.email(), passwordEncoder.encode(body.password()));
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(AuthError.EMAIL_ALREADY_EXISTS);
         }
@@ -109,9 +113,5 @@ public class AuthService {
                 throw new BusinessException(AuthError.CURRENT_PASSWORD_MISMATCH);
         }
         user.changePassword(passwordEncoder.encode(body.newPassword()), clock.instant());
-    }
-
-    public static Identity identity(AuthUser user) {
-        return new Identity(user.getUsername(), user.getEmail(), user.getId().toString());
     }
 }

@@ -1,15 +1,5 @@
 package com.aideep.domain.meeting.controller;
 
-import static org.hamcrest.Matchers.nullValue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.aideep.domain.auth.entity.AuthUser;
 import com.aideep.domain.auth.security.UserDetail;
 import com.aideep.domain.meeting.dto.request.InviteBotRequest;
@@ -34,6 +24,13 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 import java.time.Instant;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 class MeetingControllerTest {
 
     private static final UUID WORKSPACE_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
@@ -55,7 +52,7 @@ class MeetingControllerTest {
     void setUp() {
         meetingService = mock(MeetingService.class);
         workspacePermissionService = mock(WorkspacePermissionService.class);
-        AuthUser authUser = new AuthUser("user@example.com", "user", "password", Instant.EPOCH);
+        AuthUser authUser = new AuthUser("user@example.com", "password", Instant.EPOCH);
         userDetail = UserDetail.from(authUser, false);
         mockMvc = MockMvcBuilders.standaloneSetup(
                         new MeetingController(meetingService, workspacePermissionService))
