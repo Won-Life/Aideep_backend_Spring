@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 class RecallBotClientTest {
 
     private static final UUID WORKSPACE_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
+    private static final UUID NODE_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
     private static final UUID BOT_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
 
     private final AtomicReference<String> authorization = new AtomicReference<>();
@@ -62,6 +63,8 @@ class RecallBotClientTest {
         JsonNode root = jsonMapper.readTree(requestBody.get());
         assertThat(root.path("meeting_url").asText()).isEqualTo("https://meet.google.com/abc-defg-hij");
         assertThat(root.path("bot_name").asText()).isEqualTo("AIDEEP Notetaker");
+        assertThat(root.path("recording_config").has("retention")).isTrue();
+        assertThat(root.path("recording_config").path("retention").isNull()).isTrue();
         assertThat(root.path("recording_config").has("video_mixed_mp4")).isTrue();
         assertThat(root.path("recording_config").path("video_mixed_mp4").isNull()).isTrue();
         assertThat(root.path("recording_config").path("audio_mixed_mp3").isObject()).isTrue();
@@ -112,7 +115,7 @@ class RecallBotClientTest {
 
     private InviteBotRequest request() {
         return new InviteBotRequest(
-                "https://meet.google.com/abc-defg-hij", Bottype.GOOGLE, WORKSPACE_ID);
+                "https://meet.google.com/abc-defg-hij", Bottype.GOOGLE, WORKSPACE_ID, NODE_ID);
     }
 
     private void handleRequest(HttpExchange httpExchange) throws IOException {

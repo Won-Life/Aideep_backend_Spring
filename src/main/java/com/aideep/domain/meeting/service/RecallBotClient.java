@@ -79,7 +79,7 @@ public class RecallBotClient {
         ElevenLabsStreaming elevenLabsStreaming = new ElevenLabsStreaming(ELEVENLABS_MODEL);
         Transcript transcript = new Transcript(
                 new TranscriptProvider(elevenLabsStreaming), new Diarization(true));
-        RecordingConfig recordingConfig = new RecordingConfig(null, Map.of(), transcript);
+        RecordingConfig recordingConfig = new RecordingConfig(null, null, Map.of(), transcript);
         Map<String, String> metadata = Map.of(
                 "workspace_id", inviteBotRequest.workspaceId().toString(),
                 "meeting_type", inviteBotRequest.type().name());
@@ -106,8 +106,13 @@ public class RecallBotClient {
     ) {
     }
 
+    /**
+     * Zero Data Retention을 사용하므로 retention을 명시적으로 null로 직렬화한다.
+     * 필드를 생략하면 계정 기본 보존 정책이 적용돼 녹화 미디어가 Recall에 저장된다.
+     */
     @JsonInclude(JsonInclude.Include.ALWAYS)
     private record RecordingConfig(
+            @JsonProperty("retention") Object retention,
             @JsonProperty("video_mixed_mp4") Object videoMixedMp4,
             @JsonProperty("audio_mixed_mp3") Map<String, Object> audioMixedMp3,
             Transcript transcript

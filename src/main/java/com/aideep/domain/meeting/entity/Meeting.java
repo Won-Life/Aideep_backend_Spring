@@ -1,17 +1,13 @@
 package com.aideep.domain.meeting.entity;
 
 import com.aideep.global.entity.BaseEntity;
-import jakarta.persistence.AttributeOverride;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.Table;
-import java.time.Instant;
-import java.util.UUID;
+import jakarta.persistence.*;
 import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+
+import java.time.Instant;
+import java.util.UUID;
 
 /**
  * 봇을 초대한 회의 한 건. Recall 웹훅으로 받은 상태 변화를 반영해 시작/종료 시각을 관리한다.
@@ -58,7 +54,9 @@ public class Meeting extends BaseEntity {
     @Column(name = "ended_at")
     private Instant endedAt;
 
-    /** 마지막으로 반영한 Recall 상태 이벤트의 발생 시각. 순서가 뒤바뀐 웹훅을 무시하는 기준이다. */
+    /**
+     * 마지막으로 반영한 Recall 상태 이벤트의 발생 시각. 순서가 뒤바뀐 웹훅을 무시하는 기준이다.
+     */
     @Column(name = "last_event_at")
     private Instant lastEventAt;
 

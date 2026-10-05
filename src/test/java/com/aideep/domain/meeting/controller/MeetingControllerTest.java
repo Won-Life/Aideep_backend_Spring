@@ -26,6 +26,7 @@ import java.util.UUID;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,7 +40,8 @@ class MeetingControllerTest {
             {
               "url": "https://meet.google.com/abc-defg-hij",
               "type": "GOOGLE",
-              "workspaceId": "22222222-2222-4222-8222-222222222222"
+              "workspaceId": "22222222-2222-4222-8222-222222222222",
+              "nodeId": "44444444-4444-4444-8444-444444444444"
             }
             """;
 
@@ -63,7 +65,8 @@ class MeetingControllerTest {
 
     @Test
     void checksWorkspacePermissionAndReturnsCreatedBotId() throws Exception {
-        when(meetingService.inviteBot(any(InviteBotRequest.class))).thenReturn(new InviteBotResponse(BOT_ID));
+        when(meetingService.inviteBot(any(InviteBotRequest.class), eq(userDetail.userId())))
+                .thenReturn(new InviteBotResponse(BOT_ID));
 
         mockMvc.perform(post("/v1/aideep/api/meeting/bot")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -75,7 +78,7 @@ class MeetingControllerTest {
 
         verify(workspacePermissionService).requirePermission(
                 userDetail.userId(), WORKSPACE_ID, WorkspacePermission.EDIT);
-        verify(meetingService).inviteBot(any(InviteBotRequest.class));
+        verify(meetingService).inviteBot(any(InviteBotRequest.class), eq(userDetail.userId()));
     }
 
     @Test

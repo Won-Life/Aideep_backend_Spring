@@ -15,6 +15,9 @@ public record InviteBotRequest(
         Bottype type,
 
         @NotNull
-        UUID workspaceId
+        UUID workspaceId,
+
+        @NotNull
+        UUID nodeId
 ) {
 }
