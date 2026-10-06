@@ -32,6 +32,7 @@ class AuthServicePolicyTest {
                     jwtTokenService, passwordEncoder,
                     mock(com.aideep.domain.onboarding.service.UserOnboardingProfileService.class),
                     mock(com.aideep.domain.auth.service.VerificationMailService.class),
+                    mock(com.aideep.domain.workspace.service.WorkspaceQueryService.class),
                     JwtTokenServiceTest.properties(JwtTokenServiceTest.SECRET), mockEnvironment, Clock.systemUTC());
         }
         verifyNoInteractions(jwtTokenService, redisAuthStore);

@@ -18,6 +18,7 @@ import com.aideep.domain.auth.entity.AuthUser;
 import com.aideep.domain.auth.exception.AuthError;
 import com.aideep.domain.auth.repository.AuthUserRepository;
 import com.aideep.domain.onboarding.service.UserOnboardingProfileService;
+import com.aideep.domain.workspace.service.WorkspaceQueryService;
 import com.aideep.global.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class AuthServicePasswordResetTest {
                 null, null, null, null, null, null, null);
         authService = new AuthService(authUserRepository, mock(OAuthService.AuthDatabase.class), redisAuthStore,
                 mock(JwtTokenService.class), passwordEncoder, mock(UserOnboardingProfileService.class),
-                verificationMailService, authProperties, new MockEnvironment(),
+                verificationMailService, mock(WorkspaceQueryService.class), authProperties, new MockEnvironment(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

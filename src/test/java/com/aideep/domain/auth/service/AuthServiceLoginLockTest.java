@@ -14,6 +14,7 @@ import com.aideep.domain.auth.entity.AuthUser;
 import com.aideep.domain.auth.exception.AuthError;
 import com.aideep.domain.auth.repository.AuthUserRepository;
 import com.aideep.domain.onboarding.service.UserOnboardingProfileService;
+import com.aideep.domain.workspace.service.WorkspaceQueryService;
 import com.aideep.global.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,8 +44,8 @@ class AuthServiceLoginLockTest {
         passwordEncoder = mock(PasswordEncoder.class);
         authService = new AuthService(authUserRepository, mock(OAuthService.AuthDatabase.class), redisAuthStore,
                 mock(JwtTokenService.class), passwordEncoder, mock(UserOnboardingProfileService.class),
-                mock(VerificationMailService.class), mock(AuthProperties.class), new MockEnvironment(),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                mock(VerificationMailService.class), mock(WorkspaceQueryService.class), mock(AuthProperties.class),
+                new MockEnvironment(), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private AuthUser user() {

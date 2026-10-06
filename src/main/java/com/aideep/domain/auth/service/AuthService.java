@@ -16,6 +16,7 @@ import com.aideep.domain.auth.repository.AuthUserRepository;
 import com.aideep.domain.auth.security.CurrentUser;
 import com.aideep.domain.onboarding.dto.TermConsent;
 import com.aideep.domain.onboarding.service.UserOnboardingProfileService;
+import com.aideep.domain.workspace.service.WorkspaceQueryService;
 import com.aideep.global.exception.BusinessException;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -41,6 +42,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final UserOnboardingProfileService userOnboardingProfileService;
     private final VerificationMailService verificationMailService;
+    private final WorkspaceQueryService workspaceQueryService;
     private final AuthProperties authProperties;
     private final Environment environment;
     private final Clock clock;
@@ -49,7 +51,7 @@ public class AuthService {
     public AuthService(AuthUserRepository authUserRepository, OAuthService.AuthDatabase authDatabase,
                        RedisAuthStore redisAuthStore, JwtTokenService jwtTokenService,
                        PasswordEncoder passwordEncoder, UserOnboardingProfileService userOnboardingProfileService,
-                       VerificationMailService verificationMailService,
+                       VerificationMailService verificationMailService, WorkspaceQueryService workspaceQueryService,
                        AuthProperties authProperties, Environment environment, Clock clock) {
         this.authUserRepository = authUserRepository;
         this.authDatabase = authDatabase;
@@ -58,6 +60,7 @@ public class AuthService {
         this.passwordEncoder = passwordEncoder;
         this.userOnboardingProfileService = userOnboardingProfileService;
         this.verificationMailService = verificationMailService;
+        this.workspaceQueryService = workspaceQueryService;
         this.authProperties = authProperties;
         this.environment = environment;
         this.clock = clock;
@@ -175,6 +178,17 @@ public class AuthService {
         // 비밀번호를 되찾은 사용자가 바로 로그인할 수 있도록 실패 이력과 기존 세션을 정리한다.
         redisAuthStore.clearLoginFailures(user.getEmail());
         redisAuthStore.deleteRefresh(userId);
+    }
+
+    /**
+     * 계정을 하드 삭제한다. users를 참조하는 OAuth 계정, 워크스페이스 멤버십, 온보딩 데이터는
+     * FK의 on delete cascade로 함께 제거된다.
+     */
+    public void deleteAccount(CurrentUser currentUser, Jwt token) {
+        if (workspaceQueryService.existsOwnedWorkspace(currentUser.userId()))
+            throw new BusinessException(AuthError.OWNED_WORKSPACE_EXISTS);
+        authDatabase.deleteUser(currentUser.userId());
+        logout(currentUser, token);
     }
 
     private String randomToken() {

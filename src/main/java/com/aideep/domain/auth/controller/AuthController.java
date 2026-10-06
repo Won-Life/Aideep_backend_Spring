@@ -236,6 +236,14 @@ public class AuthController {
         return ResponseHandler.success("비밀번호가 재설정되었습니다.");
     }
 
+    @DeleteMapping("/me")
+    @Operation(summary = "계정 삭제")
+    public ResponseHandler<String> deleteAccount(@AuthenticationPrincipal CurrentUser currentUser,
+                                                 Authentication authentication) {
+        authService.deleteAccount(currentUser, (Jwt) authentication.getCredentials());
+        return ResponseHandler.success("계정이 삭제되었습니다.");
+    }
+
     private UriComponentsBuilder callbackBase() {
         if (authProperties.frontendUrl() == null || authProperties.frontendUrl().isBlank())
             throw new IllegalStateException("FRONTEND_URL is required");

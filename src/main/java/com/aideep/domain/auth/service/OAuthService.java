@@ -189,6 +189,14 @@ public class OAuthService {
         }
 
         @Transactional
+        public void deleteUser(UUID userId) {
+            AuthUser user = authUserRepository.lockById(userId)
+                    .orElseThrow(() -> new BusinessException(AuthError.USER_NOT_FOUND));
+            authUserRepository.delete(user);
+            authUserRepository.flush();
+        }
+
+        @Transactional
         public void unlink(UUID userId, String provider) {
             AuthUser user = authUserRepository.lockById(userId)
                     .orElseThrow(() -> new BusinessException(AuthError.USER_NOT_FOUND));
