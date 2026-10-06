@@ -16,7 +16,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.ObjectMapper;
 
-/** 로그인 잠금 카운터의 Lua/TTL 동작을 실제 Redis로 검증한다. */
+/** 로그인 잠금과 비밀번호 재설정 토큰의 Lua/TTL 동작을 실제 Redis로 검증한다. */
 @Testcontainers
 class RedisAuthStoreIntegrationTest {
 
@@ -91,5 +91,23 @@ class RedisAuthStoreIntegrationTest {
 
         redisAuthStore.assertNotLocked(EMAIL);
         assertThat(stringRedisTemplate.hasKey(RedisAuthStore.loginFailureKey(EMAIL))).isFalse();
+    }
+
+    @Test
+    void consumesPasswordResetTokenOnlyOnce() {
+        redisAuthStore.savePasswordResetToken("token", "11111111-1111-4111-8111-111111111111");
+
+        assertThat(redisAuthStore.consumePasswordResetToken("token"))
+                .isEqualTo("11111111-1111-4111-8111-111111111111");
+        assertThat(redisAuthStore.consumePasswordResetToken("token")).isNull();
+    }
+
+    @Test
+    void keepsPasswordResetTokenForThirtyMinutes() {
+        redisAuthStore.savePasswordResetToken("token", "11111111-1111-4111-8111-111111111111");
+
+        assertThat(stringRedisTemplate.getExpire(RedisAuthStore.passwordResetKey("token")))
+                .isBetween(RedisAuthStore.PASSWORD_RESET_TOKEN_TTL.toSeconds() - 5,
+                        RedisAuthStore.PASSWORD_RESET_TOKEN_TTL.toSeconds());
     }
 }

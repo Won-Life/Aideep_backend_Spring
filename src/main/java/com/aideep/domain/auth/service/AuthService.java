@@ -5,6 +5,8 @@ import com.aideep.domain.auth.dto.Identity;
 import com.aideep.domain.auth.dto.request.ChangeUsernameRequest;
 import com.aideep.domain.auth.dto.request.LoginRequest;
 import com.aideep.domain.auth.dto.request.PasswordRequest;
+import com.aideep.domain.auth.dto.request.PasswordResetConfirmRequest;
+import com.aideep.domain.auth.dto.request.PasswordResetRequest;
 import com.aideep.domain.auth.dto.request.SetOnboard;
 import com.aideep.domain.auth.dto.request.SignupRequest;
 import com.aideep.domain.auth.dto.response.TokensResponse;
@@ -22,9 +24,12 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.UUID;
 
 @Service
@@ -35,13 +40,16 @@ public class AuthService {
     private final JwtTokenService jwtTokenService;
     private final PasswordEncoder passwordEncoder;
     private final UserOnboardingProfileService userOnboardingProfileService;
+    private final VerificationMailService verificationMailService;
     private final AuthProperties authProperties;
     private final Environment environment;
     private final Clock clock;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     public AuthService(AuthUserRepository authUserRepository, OAuthService.AuthDatabase authDatabase,
                        RedisAuthStore redisAuthStore, JwtTokenService jwtTokenService,
                        PasswordEncoder passwordEncoder, UserOnboardingProfileService userOnboardingProfileService,
+                       VerificationMailService verificationMailService,
                        AuthProperties authProperties, Environment environment, Clock clock) {
         this.authUserRepository = authUserRepository;
         this.authDatabase = authDatabase;
@@ -49,6 +57,7 @@ public class AuthService {
         this.jwtTokenService = jwtTokenService;
         this.passwordEncoder = passwordEncoder;
         this.userOnboardingProfileService = userOnboardingProfileService;
+        this.verificationMailService = verificationMailService;
         this.authProperties = authProperties;
         this.environment = environment;
         this.clock = clock;
@@ -145,5 +154,40 @@ public class AuthService {
         AuthUser user = authUserRepository.lockById(userId)
                 .orElseThrow(() -> new BusinessException(AuthError.USER_NOT_FOUND));
         user.changeUsername(body.username(), clock.instant());
+    }
+
+    /** 가입된 이메일에만 1회용 재설정 링크를 보낸다. 링크의 토큰 없이는 재설정할 수 없다. */
+    public void requestPasswordReset(PasswordResetRequest body) {
+        AuthUser user = authUserRepository.findByEmail(body.email())
+                .orElseThrow(() -> new BusinessException(AuthError.USER_NOT_FOUND));
+        String token = randomToken();
+        redisAuthStore.savePasswordResetToken(token, user.getId().toString());
+        verificationMailService.sendPasswordResetLink(user.getEmail(), passwordResetUrl(token));
+    }
+
+    @Transactional
+    public void confirmPasswordReset(PasswordResetConfirmRequest body) {
+        String userId = redisAuthStore.consumePasswordResetToken(body.token());
+        if (userId == null) throw new BusinessException(AuthError.PASSWORD_RESET_TOKEN_INVALID);
+        AuthUser user = authUserRepository.lockById(UUID.fromString(userId))
+                .orElseThrow(() -> new BusinessException(AuthError.PASSWORD_RESET_TOKEN_INVALID));
+        user.changePassword(passwordEncoder.encode(body.newPassword()), clock.instant());
+        // 비밀번호를 되찾은 사용자가 바로 로그인할 수 있도록 실패 이력과 기존 세션을 정리한다.
+        redisAuthStore.clearLoginFailures(user.getEmail());
+        redisAuthStore.deleteRefresh(userId);
+    }
+
+    private String randomToken() {
+        byte[] bytes = new byte[32];
+        secureRandom.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String passwordResetUrl(String token) {
+        if (authProperties.frontendUrl() == null || authProperties.frontendUrl().isBlank())
+            throw new IllegalStateException("FRONTEND_URL is required");
+        return UriComponentsBuilder
+                .fromUriString(authProperties.frontendUrl().replaceAll("/+$", "") + "/password/reset")
+                .queryParam("token", token).build().encode().toUriString();
     }
 }

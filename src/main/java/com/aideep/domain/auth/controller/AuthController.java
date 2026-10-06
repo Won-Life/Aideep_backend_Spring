@@ -6,6 +6,8 @@ import com.aideep.domain.auth.dto.request.ChangeUsernameRequest;
 import com.aideep.domain.auth.dto.request.LoginRequest;
 import com.aideep.domain.auth.dto.request.OAuthSignupRequest;
 import com.aideep.domain.auth.dto.request.PasswordRequest;
+import com.aideep.domain.auth.dto.request.PasswordResetConfirmRequest;
+import com.aideep.domain.auth.dto.request.PasswordResetRequest;
 import com.aideep.domain.auth.dto.request.RefreshRequest;
 import com.aideep.domain.auth.dto.request.SendEmailRequest;
 import com.aideep.domain.auth.dto.request.SetOnboard;
@@ -214,6 +216,24 @@ public class AuthController {
                                             @Valid @RequestBody ChangeUsernameRequest body) {
         authService.changeUsername(currentUser.userId(), body);
         return ResponseHandler.success("닉네임이 변경되었습니다.");
+    }
+
+    @PostMapping("/password/reset/request")
+    @ResponseStatus(HttpStatus.CREATED)
+    @SecurityRequirements
+    @Operation(summary = "비밀번호 재설정 링크 요청")
+    public ResponseHandler<String> requestPasswordReset(@Valid @RequestBody PasswordResetRequest body) {
+        authService.requestPasswordReset(body);
+        return ResponseHandler.success("비밀번호 재설정 링크를 전송했습니다.");
+    }
+
+    @PostMapping("/password/reset/confirm")
+    @ResponseStatus(HttpStatus.CREATED)
+    @SecurityRequirements
+    @Operation(summary = "비밀번호 재설정 링크로 비밀번호 변경")
+    public ResponseHandler<String> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest body) {
+        authService.confirmPasswordReset(body);
+        return ResponseHandler.success("비밀번호가 재설정되었습니다.");
     }
 
     private UriComponentsBuilder callbackBase() {

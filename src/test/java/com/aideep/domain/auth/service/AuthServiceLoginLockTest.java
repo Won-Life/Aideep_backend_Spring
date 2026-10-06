@@ -43,7 +43,8 @@ class AuthServiceLoginLockTest {
         passwordEncoder = mock(PasswordEncoder.class);
         authService = new AuthService(authUserRepository, mock(OAuthService.AuthDatabase.class), redisAuthStore,
                 mock(JwtTokenService.class), passwordEncoder, mock(UserOnboardingProfileService.class),
-                mock(AuthProperties.class), new MockEnvironment(), Clock.fixed(NOW, ZoneOffset.UTC));
+                mock(VerificationMailService.class), mock(AuthProperties.class), new MockEnvironment(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private AuthUser user() {

@@ -47,7 +47,8 @@ class AuthServiceOnboardTest {
         userOnboardingProfileService = mock(UserOnboardingProfileService.class);
         authService = new AuthService(authUserRepository, mock(OAuthService.AuthDatabase.class),
                 mock(RedisAuthStore.class), mock(JwtTokenService.class), mock(PasswordEncoder.class),
-                userOnboardingProfileService, mock(AuthProperties.class), new MockEnvironment(),
+                userOnboardingProfileService, mock(VerificationMailService.class), mock(AuthProperties.class),
+                new MockEnvironment(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

@@ -73,7 +73,9 @@ public class SecurityConfig {
 
                                         "/v1/aideep/api/auth/refresh", "/v1/aideep/api/auth/signup",
                                         "/v1/aideep/api/auth/email/send", "/v1/aideep/api/auth/email/verify",
-                                        "/v1/aideep/api/auth/oauth/signup/complete").permitAll()
+                                        "/v1/aideep/api/auth/oauth/signup/complete",
+                                        "/v1/aideep/api/auth/password/reset/request",
+                                        "/v1/aideep/api/auth/password/reset/confirm").permitAll()
                                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/v1/aideep/api/auth/google",
                                         "/v1/aideep/api/auth/google/callback").permitAll().anyRequest().authenticated())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(

@@ -38,7 +38,8 @@ class AuthServiceUsernameTest {
         authUserRepository = mock(AuthUserRepository.class);
         authService = new AuthService(authUserRepository, mock(OAuthService.AuthDatabase.class),
                 mock(RedisAuthStore.class), mock(JwtTokenService.class), mock(PasswordEncoder.class),
-                mock(UserOnboardingProfileService.class), mock(AuthProperties.class), new MockEnvironment(),
+                mock(UserOnboardingProfileService.class), mock(VerificationMailService.class),
+                mock(AuthProperties.class), new MockEnvironment(),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
