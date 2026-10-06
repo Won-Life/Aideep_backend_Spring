@@ -58,10 +58,17 @@ public class AuthService {
     }
 
     public Identity authenticate(LoginRequest body) {
+        redisAuthStore.assertNotLocked(body.email());
         var user = authUserRepository.findByEmail(body.email())
-                .orElseThrow(() -> new BusinessException(AuthError.LOGIN_USER_NOT_FOUND));
-        if (user.getPassword() == null || !passwordEncoder.matches(body.password(), user.getPassword()))
+                .orElseThrow(() -> {
+                    redisAuthStore.recordLoginFailure(body.email());
+                    return new BusinessException(AuthError.LOGIN_USER_NOT_FOUND);
+                });
+        if (user.getPassword() == null || !passwordEncoder.matches(body.password(), user.getPassword())) {
+            redisAuthStore.recordLoginFailure(body.email());
             throw new BusinessException(AuthError.PASSWORD_MISMATCH);
+        }
+        redisAuthStore.clearLoginFailures(body.email());
         return identity(user);
     }
 

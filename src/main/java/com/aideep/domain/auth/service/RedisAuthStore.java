@@ -11,6 +11,9 @@ import tools.jackson.databind.ObjectMapper;
 
 @Component
 public class RedisAuthStore {
+    public static final int LOGIN_FAILURE_LIMIT = 5;
+    public static final long LOGIN_LOCK_SECONDS = Duration.ofMinutes(10).toSeconds();
+
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -33,6 +36,41 @@ public class RedisAuthStore {
                 redis.call('SET', KEYS[1], ARGV[2], 'EX', 604800)
                 return 1
                 """, Long.class), List.of(refreshKey(id)), oldToken, newToken));
+    }
+
+    public static String loginFailureKey(String email) {
+        return "loginFail:" + email;
+    }
+
+    public static String loginLockKey(String email) {
+        return "loginLock:" + email;
+    }
+
+    /** 로그인 시도 전에 호출한다. 잠긴 계정은 비밀번호가 일치해도 통과시키지 않는다. */
+    public void assertNotLocked(String email) {
+        if (get(loginLockKey(email)) != null) throw new BusinessException(AuthError.ACCOUNT_LOCKED);
+    }
+
+    /**
+     * 로그인 실패 횟수를 1 증가시키고, {@link #LOGIN_FAILURE_LIMIT}회에 도달하면
+     * {@link #LOGIN_LOCK_SECONDS}초 동안 계정을 잠근다.
+     */
+    public void recordLoginFailure(String email) {
+        stringRedisTemplate.execute(new DefaultRedisScript<>("""
+                        local attempts=redis.call('INCR', KEYS[1])
+                        if attempts == 1 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end
+                        if attempts >= tonumber(ARGV[1]) then
+                          redis.call('DEL', KEYS[1])
+                          redis.call('SET', KEYS[2], '1', 'EX', ARGV[2])
+                        end
+                        return attempts
+                        """, Long.class), List.of(loginFailureKey(email), loginLockKey(email)),
+                Integer.toString(LOGIN_FAILURE_LIMIT), Long.toString(LOGIN_LOCK_SECONDS));
+    }
+
+    /** 로그인 성공이나 비밀번호 재설정으로 실패 이력을 초기화한다. */
+    public void clearLoginFailures(String email) {
+        stringRedisTemplate.delete(List.of(loginFailureKey(email), loginLockKey(email)));
     }
 
     public void logout(String id, String token, long remainingSeconds) {
