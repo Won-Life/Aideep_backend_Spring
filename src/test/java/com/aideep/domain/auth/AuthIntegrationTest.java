@@ -307,7 +307,7 @@ class AuthIntegrationTest {
         String code = objectMapper.readTree(raw).get("code").asString();
         var message = new jakarta.mail.internet.MimeMessage(jakarta.mail.Session.getInstance(new Properties()),
                 new java.io.ByteArrayInputStream(rawMail.getBytes(StandardCharsets.UTF_8)));
-        assertThat(message.getContent().toString()).contains(code);
+        assertThat(mailText(message)).contains(code);
         assertThat(stringRedisTemplate.getExpire("auth:new@example.com")).isBetween(175L, 180L);
         postJson("/email/verify", new VerifyEmailRequest("new@example.com", Integer.parseInt(code))).andExpect(
                 status().isCreated());
@@ -586,6 +586,19 @@ class AuthIntegrationTest {
         return mockMvc.perform(
                 post(BASE + path).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(body)));
+    }
+
+    /** 멀티파트(text/plain + text/html) 메일에서 모든 텍스트 파트를 디코딩해 합친다. */
+    private String mailText(jakarta.mail.Part part) throws Exception {
+        Object content = part.getContent();
+        if (content instanceof jakarta.mail.Multipart multipart) {
+            StringBuilder collected = new StringBuilder();
+            for (int i = 0; i < multipart.getCount(); i++) {
+                collected.append(mailText(multipart.getBodyPart(i))).append('\n');
+            }
+            return collected.toString();
+        }
+        return content.toString();
     }
 
     private String beginGoogle() throws Exception {
