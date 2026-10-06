@@ -2,6 +2,7 @@ package com.aideep.domain.auth.controller;
 
 import com.aideep.domain.auth.config.AuthProperties;
 import com.aideep.domain.auth.dto.OAuthResult;
+import com.aideep.domain.auth.dto.request.ChangeUsernameRequest;
 import com.aideep.domain.auth.dto.request.LoginRequest;
 import com.aideep.domain.auth.dto.request.OAuthSignupRequest;
 import com.aideep.domain.auth.dto.request.PasswordRequest;
@@ -205,6 +206,14 @@ public class AuthController {
                                             @Valid @RequestBody PasswordRequest body) {
         authService.password(currentUser.userId(), body);
         return ResponseHandler.success("비밀번호가 설정되었습니다.");
+    }
+
+    @PatchMapping("/username")
+    @Operation(summary = "닉네임 변경")
+    public ResponseHandler<String> username(@AuthenticationPrincipal CurrentUser currentUser,
+                                            @Valid @RequestBody ChangeUsernameRequest body) {
+        authService.changeUsername(currentUser.userId(), body);
+        return ResponseHandler.success("닉네임이 변경되었습니다.");
     }
 
     private UriComponentsBuilder callbackBase() {

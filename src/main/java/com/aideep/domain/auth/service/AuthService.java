@@ -2,6 +2,7 @@ package com.aideep.domain.auth.service;
 
 import com.aideep.domain.auth.config.AuthProperties;
 import com.aideep.domain.auth.dto.Identity;
+import com.aideep.domain.auth.dto.request.ChangeUsernameRequest;
 import com.aideep.domain.auth.dto.request.LoginRequest;
 import com.aideep.domain.auth.dto.request.PasswordRequest;
 import com.aideep.domain.auth.dto.request.SetOnboard;
@@ -137,5 +138,12 @@ public class AuthService {
             user.changeUsername(body.userName(), clock.instant());
         }
         userOnboardingProfileService.save(userId, body.usageProposal(), body.meeting());
+    }
+
+    @Transactional
+    public void changeUsername(UUID userId, ChangeUsernameRequest body) {
+        AuthUser user = authUserRepository.lockById(userId)
+                .orElseThrow(() -> new BusinessException(AuthError.USER_NOT_FOUND));
+        user.changeUsername(body.username(), clock.instant());
     }
 }
