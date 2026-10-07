@@ -377,10 +377,12 @@ class AuthIntegrationTest {
     }
 
     @Test
-    void mailDeliveryFailureIsNotReportedAsSuccess() throws Exception {
+    void mailDeliveryFailureDoesNotFailTheRequest() throws Exception {
         EXTERNAL.rejectMail = true;
-        postJson("/email/send", new SendEmailRequest("new@example.com")).andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.error.errorCode").value("COMMON500"));
+        // 발송은 전용 스레드 풀로 넘어가므로 SMTP 실패가 응답에 드러나지 않는다. 대신 인증번호는 Redis에 남아 재전송으로 복구할 수 있다.
+        postJson("/email/send", new SendEmailRequest("new@example.com")).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success.ok").value(true));
+        assertThat(redisAuthStore.get("auth:new@example.com")).isNotNull();
     }
 
     @Test

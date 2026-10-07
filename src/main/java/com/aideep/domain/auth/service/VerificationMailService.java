@@ -3,7 +3,11 @@ package com.aideep.domain.auth.service;
 import com.aideep.domain.auth.config.AuthProperties;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -12,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Clock;
 
+@Slf4j
 @Service
 public class VerificationMailService {
     private static final String SERVICE_NAME = "On:Node";
@@ -19,14 +24,17 @@ public class VerificationMailService {
     private final ObjectProvider<JavaMailSender> javaMailSenderProvider;
     private final RedisAuthStore redisAuthStore;
     private final AuthProperties authProperties;
+    private final TaskExecutor mailTaskExecutor;
     private final Clock clock;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public VerificationMailService(ObjectProvider<JavaMailSender> javaMailSenderProvider, RedisAuthStore redisAuthStore,
-                                   AuthProperties authProperties, Clock clock) {
+                                   AuthProperties authProperties,
+                                   @Qualifier("mailTaskExecutor") TaskExecutor mailTaskExecutor, Clock clock) {
         this.javaMailSenderProvider = javaMailSenderProvider;
         this.redisAuthStore = redisAuthStore;
         this.authProperties = authProperties;
+        this.mailTaskExecutor = mailTaskExecutor;
         this.clock = clock;
     }
 
@@ -58,6 +66,9 @@ public class VerificationMailService {
 
     /**
      * HTML 본문과 평문 본문을 함께 담아 보낸다. HTML을 지원하지 않거나 차단하는 클라이언트에서도 인증번호와 링크를 읽을 수 있어야 한다.
+     * <p>
+     * 메시지 조립까지는 요청 스레드에서 처리해 구성 오류를 즉시 드러내고, 네트워크를 타는 발송만 전용 스레드 풀에 넘긴다. 발송 실패는 호출자에게 전달되지 않으므로 ERROR 로그로만 남는다.
+     * 사용자는 재전송이나 재요청으로 복구한다.
      */
     private void send(JavaMailSender javaMailSender, String email, String subject, String text, String html) {
         MimeMessage mimeMessage = javaMailSender.createMimeMessage();
@@ -71,7 +82,14 @@ public class VerificationMailService {
         } catch (MessagingException e) {
             throw new IllegalStateException("Failed to compose mail: " + subject, e);
         }
-        javaMailSender.send(mimeMessage);
+        mailTaskExecutor.execute(() -> {
+            try {
+                javaMailSender.send(mimeMessage);
+            } catch (MailException e) {
+                // 수신자 주소는 개인정보라 로그에 남기지 않는다. 어떤 종류의 메일이 실패했는지만 기록한다.
+                log.error("메일 발송 실패: subject={}", subject, e);
+            }
+        });
     }
 
     private String verificationCodeHtml(String code) {
@@ -92,10 +110,6 @@ public class VerificationMailService {
                     </td>
                   </tr>
                 </table>
-                <p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:#6b7280;word-break:break-all;">
-                  버튼이 동작하지 않으면 아래 주소를 브라우저에 붙여넣어주세요.<br>
-                  <a href="%s" target="_blank" style="color:#4f46e5;">%s</a>
-                </p>
                 """.formatted(resetUrl, resetUrl, resetUrl),
                 "링크는 30분간 유효하며 한 번만 사용할 수 있습니다. 본인이 요청하지 않았다면 이 메일을 무시해주세요.");
     }

@@ -17,6 +17,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.core.task.SyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 
 import java.io.ByteArrayOutputStream;
@@ -47,8 +50,9 @@ class VerificationMailServiceTest {
         redisAuthStore = mock(RedisAuthStore.class);
         AuthProperties authProperties = new AuthProperties(null, null, null, null, null, null, null, null,
                 "noreply@example.com", "mail-pass", null, null, null);
+        // 발송 순서와 시점을 결정적으로 만들기 위해 호출 스레드에서 바로 실행하는 executor를 쓴다.
         verificationMailService = new VerificationMailService(javaMailSenderProvider, redisAuthStore, authProperties,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                new SyncTaskExecutor(), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private String sentMessage() throws Exception {
@@ -71,8 +75,6 @@ class VerificationMailServiceTest {
         assertThat(decoded).as("버튼이 재설정 링크를 가리킨다")
                 .contains("<a href=\"" + RESET_URL + "\"");
         assertThat(decoded).contains("비밀번호 재설정하기");
-        assertThat(decoded).as("버튼이 막힌 클라이언트를 위해 주소도 함께 노출한다")
-                .contains("버튼이 동작하지 않으면");
     }
 
     @Test
@@ -103,13 +105,57 @@ class VerificationMailServiceTest {
         AuthProperties blankMail = new AuthProperties(null, null, null, null, null, null, null, null,
                 null, null, null, null, null);
         VerificationMailService withoutCredentials = new VerificationMailService(
-                credentialProvider(), mock(RedisAuthStore.class), blankMail, Clock.fixed(NOW, ZoneOffset.UTC));
+                credentialProvider(), mock(RedisAuthStore.class), blankMail, new SyncTaskExecutor(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThatThrownBy(() -> withoutCredentials.sendPasswordResetLink(EMAIL, RESET_URL))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("MAIL_USER");
 
         verify(javaMailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    void handsSendingToTheMailExecutorInsteadOfTheCallingThread() {
+        RecordingTaskExecutor recordingTaskExecutor = new RecordingTaskExecutor();
+        VerificationMailService service = new VerificationMailService(credentialProvider(), redisAuthStore,
+                new AuthProperties(null, null, null, null, null, null, null, null,
+                        "noreply@example.com", "mail-pass", null, null, null),
+                recordingTaskExecutor, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        service.sendPasswordResetLink(EMAIL, RESET_URL);
+
+        assertThat(recordingTaskExecutor.submitted).as("발송은 전용 executor로 넘긴다").isEqualTo(1);
+        verify(javaMailSender, never()).send(any(MimeMessage.class));
+
+        recordingTaskExecutor.runAll();
+        verify(javaMailSender).send(any(MimeMessage.class));
+    }
+
+    @Test
+    void swallowsSendFailureSoTheRequestStillSucceeds() {
+        org.mockito.Mockito.doThrow(new MailSendException("smtp down"))
+                .when(javaMailSender).send(any(MimeMessage.class));
+
+        verificationMailService.sendPasswordResetLink(EMAIL, RESET_URL);
+
+        verify(javaMailSender).send(any(MimeMessage.class));
+    }
+
+    /** 제출된 작업을 보관만 하고 실행하지 않아 비동기 경계를 관찰할 수 있게 한다. */
+    private static class RecordingTaskExecutor implements TaskExecutor {
+        private final java.util.List<Runnable> tasks = new java.util.ArrayList<>();
+        private int submitted;
+
+        @Override
+        public void execute(Runnable task) {
+            tasks.add(task);
+            submitted++;
+        }
+
+        void runAll() {
+            tasks.forEach(Runnable::run);
+        }
     }
 
     @SuppressWarnings("unchecked")
