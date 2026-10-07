@@ -14,6 +14,10 @@
 
 - [AI-백엔드 노드 이벤트 계약](ai-backend-node-event-contract.md): AI 서버가 Redis Stream으로 노드 생성·수정 명령을
   전달하고 백엔드가 멱등하게 처리하는 구조
+- [백엔드→AI 노드 명령 처리 결과 계약](ai-command-result-contract.md): 백엔드가 처리한 노드 명령의 성공·실패를
+  별도 Redis Stream으로 통지하는 계약(AI 서버 소비자 관점)
+- [회의 상태 수신과 AI 맥락 전달 계약](meeting-ai-context-contract.md): Recall 봇 상태 웹훅으로 회의 상태를 반영하고,
+  녹음 시작 시 회의 이벤트를 발행해 AI 서버가 내부 API로 회의 노드의 하위 그래프를 조회하는 경로
 
 ## 현재 시스템 맥락
 
