@@ -39,7 +39,11 @@ public enum AuthError implements ErrorCode {
     DEMO_WORKSPACE_NOT_CONFIGURED(HttpStatus.NOT_FOUND, "AUTH-028", "데모 워크스페이스가 설정되지 않았습니다."),
     PROVIDER_ALREADY_LINKED(HttpStatus.CONFLICT, "AUTH-029", "이미 연동된 제공자입니다."),
     OAUTH_ACCOUNT_NOT_LINKED(HttpStatus.NOT_FOUND, "AUTH-030", "NOT_LINKED"),
-    LAST_AUTH_METHOD(HttpStatus.CONFLICT, "AUTH-031", "LAST_AUTH_METHOD");
+    LAST_AUTH_METHOD(HttpStatus.CONFLICT, "AUTH-031", "LAST_AUTH_METHOD"),
+    ACCOUNT_LOCKED(HttpStatus.FORBIDDEN, "AUTH-032", "로그인에 5회 실패하여 10분간 잠겼습니다. 잠시 후 다시 시도해주세요."),
+    OWNED_WORKSPACE_EXISTS(HttpStatus.CONFLICT, "AUTH-033",
+            "소유한 워크스페이스가 있어 계정을 삭제할 수 없습니다. 워크스페이스를 삭제하거나 소유권을 넘긴 뒤 다시 시도해주세요."),
+    PASSWORD_RESET_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "AUTH-034", "유효하지 않거나 만료된 비밀번호 재설정 링크입니다.");
 
     private final HttpStatus status;
     private final String code;

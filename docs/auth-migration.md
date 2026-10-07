@@ -45,6 +45,10 @@ JWT secret이 없거나 짧으면 시작을 거부합니다. 기존 secret이 32
 | GET `/oauth/links`              | JWT        | 활성 계정의 `provider`, `email`, `created_at` 목록              |
 | DELETE `/oauth/link/{provider}` | JWT        | soft delete. 마지막 로그인 수단이면 409                            |
 | PATCH `/password`               | JWT        | `currentPassword`(기존 비밀번호가 있으면 필수), `newPassword`(최소 4자) |
+| PATCH `/username`               | JWT        | `username`(1~100자) → 닉네임 변경. 중복 허용                       |
+| POST `/password/reset/request`  | 공개         | `email` → 가입자에게 재설정 링크 메일 발송. 미가입은 `AUTH-010`             |
+| POST `/password/reset/confirm`  | 일회용 token  | `token`, `newPassword`(최소 4자). 성공 시 refresh 폐기            |
+| DELETE `/me`                    | JWT        | 계정 하드 삭제. OWNER 워크스페이스가 있으면 `AUTH-033`                   |
 | GET `/demo/enter?key=...`       | 데모 secret  | 매 요청마다 새 게스트를 만들고 지정 워크스페이스의 VIEWER로 참여                  |
 
 JSON은 `{resultType,error,success}` 형식을 유지합니다. 문자열 성공도 `success`에 담습니다. 인증 업무 오류는 `AuthError`에 정의된 `AUTH-숫자`
@@ -66,8 +70,13 @@ auth의 `HTTP-{status}`·`COMMON-500` 코드 및 문자열 data에서 변경된 
 - **사용자가 선택한 기존 규약 유지:** refresh JWT도 API 인증에 사용할 수 있습니다. 같은 사용자에게 같은 초에 발급하면 동일 토큰이 나올 수 있어, 같은 초 재발급에서는 이전 refresh
   무효화를 보장하지 않습니다. 토큰 용도 구분과 jti 도입은 별도 전환 작업입니다.
 - Redis 키: `refreshToken:{userId}`, `masterToken:{userId}`, `blacklist:{token}`, `auth:{email}`, `verified:{email}`,
-  `oauth:link_state:{state}`, `oauth:signup_ticket:{ticket}`. JSON 구조도 NestJS와 공유합니다.
+  `oauth:link_state:{state}`, `oauth:signup_ticket:{ticket}`, `loginFail:{email}`, `loginLock:{email}`,
+  `passwordReset:{token}`. JSON 구조도 NestJS와 공유합니다.
 - 인증번호 TTL 180초, 오답 5회, 인증 완료 TTL 600초. state/ticket TTL 300초이며 일회용입니다.
+- 로그인 실패는 이메일 단위로 셉니다. 미가입 이메일도 동일하게 세어 계정 존재 여부가 드러나지 않게 하며, 5회 누적 시 10분
+  (`loginLock:{email}`) 동안 비밀번호가 맞아도 `AUTH-032`로 거절합니다. 로그인 성공과 비밀번호 재설정은 카운터를 초기화합니다.
+- 비밀번호 재설정 링크는 `${FRONTEND_URL}/password/reset?token=...` 형태이며 토큰 TTL은 30분, 1회용입니다. 토큰 없이는
+  재설정할 수 없고, 재설정에 성공하면 해당 사용자의 refresh를 폐기합니다.
 - DB 테이블: `users`, `oauth_accounts`, `workspaces`, `users_workspaces`; 기존 UUID·timestamp·bcrypt·유일성 제약조건을 사용합니다. `phone`
   은 기존처럼 입력만 받고 저장하지 않습니다.
 - DDL 자동 변경은 꺼져 있습니다. 신규 DB라면 기존 서비스의 스키마를 먼저 준비해야 합니다. `src/test/resources/auth-schema.sql`은 테스트용 최소 스키마이며 운영 마이그레이션이
@@ -76,6 +85,10 @@ auth의 `HTTP-{status}`·`COMMON-500` 코드 및 문자열 data에서 변경된 
   409가 날 수 있으며, 스키마 변경 없이 이를 우회하지 않습니다.
 - 비밀번호 변경 후 기존 토큰은 기존 NestJS와 동일하게 유지됩니다. DB와 Redis 간 분산 트랜잭션은 없으므로 DB 커밋 후 토큰 저장이 실패하면 계정은 생성되어 있을 수 있습니다. 재로그인으로 복구할 수
   있습니다.
+- 계정 삭제(`DELETE /me`)는 `users` 행을 물리적으로 지우며, FK의 `on delete cascade`로 `oauth_accounts`,
+  `users_workspaces`, `meetings`, `user_onboarding_profiles`, `user_term_agreements`가 함께 사라집니다.
+  `meetings.user_id`는 원래 `on delete restrict`였고 `V7__cascade_meetings_on_user_delete.sql`에서 cascade로 바꿨습니다.
+  소유(OWNER) 워크스페이스가 남아 있으면 `AUTH-033`으로 거절하므로 먼저 삭제하거나 소유권을 넘겨야 합니다.
 
 ## 운영·로그
 

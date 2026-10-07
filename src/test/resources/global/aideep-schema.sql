@@ -44,8 +44,8 @@ CREATE TABLE workspaces
 
 CREATE TABLE users_workspaces
 (
-    user_id      uuid                NOT NULL REFERENCES users (user_id),
-    workspace_id uuid                NOT NULL REFERENCES workspaces (workspace_id),
+    user_id      uuid                NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
+    workspace_id uuid                NOT NULL REFERENCES workspaces (workspace_id) ON DELETE CASCADE,
     role         workspace_role_enum NOT NULL DEFAULT 'EDITOR',
     joined_at    timestamptz         NOT NULL DEFAULT now(),
     deleted_at   timestamptz,
@@ -115,7 +115,7 @@ CREATE TABLE meetings
     meeting_id      uuid PRIMARY KEY,
     workspace_id    uuid                NOT NULL REFERENCES workspaces (workspace_id) ON DELETE CASCADE,
     node_id         uuid                NOT NULL REFERENCES nodes (node_id) ON DELETE CASCADE,
-    user_id         uuid                NOT NULL REFERENCES users (user_id),
+    user_id         uuid                NOT NULL REFERENCES users (user_id) ON DELETE CASCADE,
     bot_id          uuid UNIQUE,
     meeting_url     varchar(2048)       NOT NULL,
     bot_type        bot_type_enum       NOT NULL,
