@@ -40,7 +40,9 @@ class SecurityResponseTest {
     AuthUserRepository authUserRepository;
     @Autowired
     MockMvc mockMvc;
+    // 웹훅 전용 체인이 추가되어 SecurityFilterChain 빈이 둘이므로, 이 테스트가 검증하는 기본(JWT) 체인을 지정한다.
     @Autowired
+    @org.springframework.beans.factory.annotation.Qualifier("filterChain")
     SecurityFilterChain securityFilterChain;
     @Autowired
     WebApplicationContext webApplicationContext;
@@ -128,5 +130,15 @@ class SecurityResponseTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.resultType").value("FAIL"))
                 .andExpect(jsonPath("$.error.errorCode").value("COMMON401"));
+    }
+
+    /**
+     * 웹훅은 사용자 JWT가 아니라 본문 서명으로 인증하므로 기본 체인의 401에 걸리지 않아야 한다. 이 테스트에는 웹훅 컨트롤러가 없으므로 통과한 요청은 404가 된다.
+     */
+    @Test
+    void webhookPathBypassesJwtAuthentication() throws Exception {
+        mockMvc.perform(get("/v1/aideep/api/webhooks/recall/missing"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON404"));
     }
 }

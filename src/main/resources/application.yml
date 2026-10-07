@@ -46,6 +46,12 @@ recall:
   api-url: ${RECALL_API_URL:https://us-east-1.recall.ai/api/v1/bot/}
   api-key: ${RECALL_API_KEY:}
   bot-name: ${RECALL_BOT_NAME:AIDEEP Meeting Notetaker}
+  webhook-secret: ${RECALL_WEBHOOK_SECRET:}
+
+meeting:
+  events:
+    enabled: ${MEETING_EVENTS_ENABLED:true}
+    stream-key: ${MEETING_EVENTS_STREAM_KEY:onnode:ai:meeting-events:v1}
 
 node:
   events:

@@ -17,7 +17,11 @@ public enum MeetingError implements ErrorCode {
     RECALL_RESPONSE_INVALID(
             HttpStatus.BAD_GATEWAY,
             "MEETING-003",
-            "회의 봇 서비스의 응답이 올바르지 않습니다.");
+            "회의 봇 서비스의 응답이 올바르지 않습니다."),
+    WEBHOOK_SIGNATURE_INVALID(
+            HttpStatus.UNAUTHORIZED,
+            "MEETING-004",
+            "회의 봇 웹훅 서명이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String code;

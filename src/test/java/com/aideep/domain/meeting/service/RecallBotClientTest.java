@@ -109,7 +109,7 @@ class RecallBotClientTest {
     private RecallBotClient client(String apiKey) {
         String apiUrl = "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/api/v1/bot/";
         RecallProperties recallProperties = new RecallProperties(
-                apiUrl, apiKey, "AIDEEP Notetaker");
+                apiUrl, apiKey, "AIDEEP Notetaker", "");
         return new RecallBotClient(recallProperties, RestClient.create());
     }
 

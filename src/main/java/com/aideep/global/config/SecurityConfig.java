@@ -15,6 +15,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -47,6 +48,9 @@ import java.util.UUID;
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
+
+    static final String WEBHOOK_PATH_PATTERN = "/v1/aideep/api/webhooks/**";
+
     @Bean
     public JwtDecoder jwtDecoder(JwtTokenService jwtTokenService, RedisAuthStore redisAuthStore) {
         return token -> {
@@ -59,6 +63,23 @@ public class SecurityConfig {
             }
             return jwt;
         };
+    }
+
+    /**
+     * Recall 웹훅은 사용자 JWT가 아니라 본문 서명으로 인증하므로 기본 체인의 {@code authenticated()}에서 분리한다. 서명 검증은
+     * {@code RecallWebhookVerifier}가 컨트롤러에서 수행한다.
+     */
+    @Bean
+    @Order(1)
+    public SecurityFilterChain webhookFilterChain(HttpSecurity httpSecurity) throws Exception {
+        httpSecurity.securityMatcher(WEBHOOK_PATH_PATTERN).csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(cache -> cache.disable())
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .httpBasic(basic -> basic.disable()).formLogin(form -> form.disable())
+                .logout(logout -> logout.disable());
+        return httpSecurity.build();
     }
 
     @Bean
