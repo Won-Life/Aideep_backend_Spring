@@ -6,6 +6,7 @@ import com.aideep.domain.auth.security.UserDetail;
 import com.aideep.domain.auth.service.JwtTokenService;
 import com.aideep.domain.auth.service.RedisAuthStore;
 import com.aideep.global.exception.BusinessException;
+import com.aideep.global.security.InternalApiKeyFilter;
 import com.aideep.global.exception.GlobalErrorCode;
 import com.aideep.global.response.ResponseHandler;
 import jakarta.servlet.FilterChain;
@@ -47,9 +48,11 @@ import java.util.UUID;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@org.springframework.boot.context.properties.EnableConfigurationProperties(InternalApiProperties.class)
 public class SecurityConfig {
 
     static final String WEBHOOK_PATH_PATTERN = "/v1/aideep/api/webhooks/**";
+    static final String INTERNAL_PATH_PATTERN = "/v1/aideep/api/internal/**";
 
     @Bean
     public JwtDecoder jwtDecoder(JwtTokenService jwtTokenService, RedisAuthStore redisAuthStore) {
@@ -77,6 +80,26 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(cache -> cache.disable())
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .httpBasic(basic -> basic.disable()).formLogin(form -> form.disable())
+                .logout(logout -> logout.disable());
+        return httpSecurity.build();
+    }
+
+    /**
+     * 내부 서버 간 API는 사용자 JWT 대신 공유 시크릿 헤더로 인증한다. 키가 설정되지 않으면 {@code InternalApiProperties}가 기동을
+     * 실패시키므로 인증 없이 열려 있는 상태는 만들어지지 않는다.
+     */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain internalApiFilterChain(HttpSecurity httpSecurity, ObjectMapper objectMapper,
+                                                      InternalApiProperties internalApiProperties) throws Exception {
+        httpSecurity.securityMatcher(INTERNAL_PATH_PATTERN).csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(cache -> cache.disable())
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .addFilterBefore(new InternalApiKeyFilter(internalApiProperties, objectMapper),
+                        org.springframework.security.web.access.intercept.AuthorizationFilter.class)
                 .httpBasic(basic -> basic.disable()).formLogin(form -> form.disable())
                 .logout(logout -> logout.disable());
         return httpSecurity.build();

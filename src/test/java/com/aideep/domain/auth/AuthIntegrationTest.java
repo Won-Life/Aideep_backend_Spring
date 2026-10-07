@@ -63,6 +63,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {
         "spring.flyway.enabled=false",
         "node.events.enabled=false",
+        "internal.api.key=internal-test-key-at-least-32-bytes",
         "auth.jwt-secret=local-test-secret-at-least-32-bytes-long",
         "auth.frontend-url=http://frontend.test",
         "auth.google-client-id=test-client", "auth.google-client-secret=test-client-secret",

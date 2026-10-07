@@ -21,7 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(SecurityResponseTest.TestController.class)
+@WebMvcTest(properties = "internal.api.key=internal-test-key-at-least-32-bytes", value = SecurityResponseTest.TestController.class)
 @Import({SecurityConfig.class, SecurityResponseTest.TestController.class})
 class SecurityResponseTest {
     @org.springframework.web.bind.annotation.RestController
@@ -138,6 +138,21 @@ class SecurityResponseTest {
     @Test
     void webhookPathBypassesJwtAuthentication() throws Exception {
         mockMvc.perform(get("/v1/aideep/api/webhooks/recall/missing"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON404"));
+    }
+
+    /**
+     * 내부 API는 사용자 JWT가 아니라 공유 키로 인증한다. 키가 맞으면 기본 체인의 401에 걸리지 않고 통과하므로, 컨트롤러가 없는 이 테스트에서는 404가 된다.
+     */
+    @Test
+    void internalPathRequiresSharedKeyInsteadOfJwt() throws Exception {
+        mockMvc.perform(get("/v1/aideep/api/internal/workspaces/w/nodes/n"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON401"));
+
+        mockMvc.perform(get("/v1/aideep/api/internal/workspaces/w/nodes/n")
+                        .header("X-Internal-Key", "internal-test-key-at-least-32-bytes"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.errorCode").value("COMMON404"));
     }

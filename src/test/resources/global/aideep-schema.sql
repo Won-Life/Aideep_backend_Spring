@@ -69,6 +69,23 @@ CREATE TABLE nodes
 );
 CREATE INDEX idx_nodes_workspace ON nodes (workspace_id);
 
+CREATE TABLE edges
+(
+    edge_id       uuid PRIMARY KEY     DEFAULT gen_random_uuid(),
+    workspace_id  uuid        NOT NULL REFERENCES workspaces (workspace_id) ON DELETE CASCADE,
+    source_id     uuid        NOT NULL REFERENCES nodes (node_id) ON DELETE CASCADE,
+    target_id     uuid        NOT NULL REFERENCES nodes (node_id) ON DELETE CASCADE,
+    source_handle varchar(250),
+    target_handle varchar(250),
+    version       integer     NOT NULL DEFAULT 1,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now(),
+    deleted_at    timestamptz
+);
+CREATE INDEX idx_edges_source ON edges (source_id);
+CREATE INDEX idx_edges_target ON edges (target_id);
+CREATE INDEX idx_edges_workspace ON edges (workspace_id);
+
 CREATE TABLE processed_node_events
 (
     event_id     uuid PRIMARY KEY,

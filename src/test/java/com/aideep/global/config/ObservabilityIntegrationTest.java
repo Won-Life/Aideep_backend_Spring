@@ -38,6 +38,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 @SpringBootTest(classes = ObservabilityIntegrationTest.TestConfiguration.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
         "spring.profiles.active=prod", "spring.flyway.enabled=false", "management.health.mail.enabled=false", "spring.jpa.hibernate.ddl-auto=none",
+        "internal.api.key=internal-test-key-at-least-32-bytes",
         "DD_METRICS_ENABLED=true", "DD_AGENT_HOST=127.0.0.1", "DD_SERVICE=observability-test",
         "DD_ENV=test", "DD_VERSION=integration", "management.statsd.metrics.export.buffered=false"
 })

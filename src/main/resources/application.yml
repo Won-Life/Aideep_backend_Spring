@@ -48,6 +48,10 @@ recall:
   bot-name: ${RECALL_BOT_NAME:AIDEEP Meeting Notetaker}
   webhook-secret: ${RECALL_WEBHOOK_SECRET:}
 
+internal:
+  api:
+    key: ${INTERNAL_API_KEY:}
+
 meeting:
   events:
     enabled: ${MEETING_EVENTS_ENABLED:true}
