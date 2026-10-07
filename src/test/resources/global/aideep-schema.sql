@@ -113,6 +113,11 @@ CREATE TABLE meetings
 );
 CREATE INDEX idx_meetings_workspace_status ON meetings (workspace_id, status);
 CREATE INDEX idx_meetings_node ON meetings (node_id);
+-- 진행 중인 회의의 meeting_url은 유일하다. 종료·삭제된 회의는 제외한다(V8).
+CREATE UNIQUE INDEX uq_meetings_active_url
+    ON meetings (md5(meeting_url))
+    WHERE deleted_at IS NULL
+        AND status IN ('REQUESTED', 'JOINING', 'WAITING_ROOM', 'IN_CALL_NOT_RECORDING', 'RECORDING');
 
 CREATE TABLE user_onboarding_profiles
 (

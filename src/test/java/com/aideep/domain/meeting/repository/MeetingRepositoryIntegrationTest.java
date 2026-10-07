@@ -1,6 +1,7 @@
 package com.aideep.domain.meeting.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aideep.domain.meeting.entity.Bottype;
@@ -110,6 +111,37 @@ class MeetingRepositoryIntegrationTest {
         assertThat(found.getStartedAt()).isEqualTo(NOW.plusSeconds(30));
         assertThat(found.getEndedAt()).isEqualTo(NOW.plusSeconds(600));
         assertThat(found.getLastEventAt()).isEqualTo(NOW.plusSeconds(600));
+    }
+
+    /**
+     * V8의 부분 unique 인덱스가 진행 중인 같은 링크의 두 번째 회의를 막는지 검증한다.
+     */
+    @Test
+    void rejectsSecondActiveMeetingWithTheSameUrl() {
+        meetingRepository.saveAndFlush(requested());
+
+        assertThatThrownBy(() -> meetingRepository.saveAndFlush(requested()))
+                .isInstanceOf(DataIntegrityViolationException.class)
+                .hasMessageContaining("uq_meetings_active_url");
+    }
+
+    @Test
+    void allowsSameUrlOnceThePreviousMeetingEnded() {
+        Meeting ended = requested();
+        ended.applyStatus(MeetingStatus.DONE, null, NOW.plusSeconds(10), NOW.plusSeconds(11));
+        meetingRepository.saveAndFlush(ended);
+
+        assertThatCode(() -> meetingRepository.saveAndFlush(requested())).doesNotThrowAnyException();
+    }
+
+    @Test
+    void findsActiveMeetingByUrl() {
+        meetingRepository.saveAndFlush(requested());
+
+        assertThat(meetingRepository.existsByMeetingUrlAndStatusInAndDeletedAtIsNull(
+                "https://meet.test/abc", MeetingStatus.active())).isTrue();
+        assertThat(meetingRepository.existsByMeetingUrlAndStatusInAndDeletedAtIsNull(
+                "https://meet.test/other", MeetingStatus.active())).isFalse();
     }
 
     @Test

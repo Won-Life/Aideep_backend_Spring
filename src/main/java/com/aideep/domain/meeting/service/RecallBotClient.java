@@ -47,7 +47,7 @@ public class RecallBotClient {
         return RestClient.builder().requestFactory(requestFactory).build();
     }
 
-    public InviteBotResponse invite(InviteBotRequest inviteBotRequest) {
+    public InviteBotResponse invite(InviteBotRequest inviteBotRequest, UUID meetingId) {
         requireConfiguration();
         RecallBotResponse recallBotResponse;
         try {
@@ -56,7 +56,7 @@ public class RecallBotClient {
                     .header("Authorization", recallProperties.apiKey())
                     .accept(MediaType.APPLICATION_JSON)
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(createRequest(inviteBotRequest))
+                    .body(createRequest(inviteBotRequest, meetingId))
                     .retrieve()
                     .body(RecallBotResponse.class);
         } catch (RestClientResponseException exception) {
@@ -75,12 +75,14 @@ public class RecallBotClient {
         return new InviteBotResponse(recallBotResponse.id());
     }
 
-    private RecallCreateBotRequest createRequest(InviteBotRequest inviteBotRequest) {
+    private RecallCreateBotRequest createRequest(InviteBotRequest inviteBotRequest, UUID meetingId) {
         ElevenLabsStreaming elevenLabsStreaming = new ElevenLabsStreaming(ELEVENLABS_MODEL);
         Transcript transcript = new Transcript(
                 new TranscriptProvider(elevenLabsStreaming), new Diarization(true));
         RecordingConfig recordingConfig = new RecordingConfig(null, null, Map.of(), transcript);
+        // meeting_id는 응답 처리 실패로 bot_id를 저장하지 못한 봇을 회의로 되짚는 유일한 수단이다.
         Map<String, String> metadata = Map.of(
+                "meeting_id", meetingId.toString(),
                 "workspace_id", inviteBotRequest.workspaceId().toString(),
                 "meeting_type", inviteBotRequest.type().name());
         return new RecallCreateBotRequest(

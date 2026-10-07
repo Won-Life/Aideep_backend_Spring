@@ -95,6 +95,51 @@ class MeetingControllerTest {
         verifyNoInteractions(workspacePermissionService, meetingService);
     }
 
+    @Test
+    void surfacesMissingMeetingNodeAsNotFound() throws Exception {
+        when(meetingService.inviteBot(any(InviteBotRequest.class), eq(userDetail.userId())))
+                .thenThrow(new com.aideep.global.exception.BusinessException(
+                        com.aideep.domain.meeting.exception.MeetingError.NODE_NOT_FOUND));
+
+        mockMvc.perform(post("/v1/aideep/api/meeting/bot")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_REQUEST))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.resultType").value("FAIL"))
+                .andExpect(jsonPath("$.error.errorCode").value("MEETING-006"));
+    }
+
+    @Test
+    void surfacesMissingWorkspaceAsNotFound() throws Exception {
+        when(meetingService.inviteBot(any(InviteBotRequest.class), eq(userDetail.userId())))
+                .thenThrow(new com.aideep.global.exception.BusinessException(
+                        com.aideep.domain.meeting.exception.MeetingError.WORKSPACE_NOT_FOUND));
+
+        mockMvc.perform(post("/v1/aideep/api/meeting/bot")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_REQUEST))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.errorCode").value("MEETING-005"));
+    }
+
+    /**
+     * 권한 검사는 컨트롤러가 먼저 하므로, 멤버십이 없는 워크스페이스는 존재 여부를 흘리지 않고 403으로 끝난다.
+     */
+    @Test
+    void deniesWorkspaceWithoutMembershipBeforeCallingTheService() throws Exception {
+        doThrow(new org.springframework.security.access.AccessDeniedException("denied"))
+                .when(workspacePermissionService)
+                .requirePermission(userDetail.userId(), WORKSPACE_ID, WorkspacePermission.EDIT);
+
+        mockMvc.perform(post("/v1/aideep/api/meeting/bot")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_REQUEST))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON403"));
+
+        verifyNoInteractions(meetingService);
+    }
+
     private HandlerMethodArgumentResolver authenticationPrincipalResolver() {
         return new HandlerMethodArgumentResolver() {
             @Override

@@ -29,6 +29,7 @@ class RecallBotClientTest {
     private static final UUID WORKSPACE_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
     private static final UUID NODE_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
     private static final UUID BOT_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
+    private static final UUID MEETING_ID = UUID.fromString("66666666-6666-4666-8666-666666666666");
 
     private final AtomicReference<String> authorization = new AtomicReference<>();
     private final AtomicReference<String> requestBody = new AtomicReference<>();
@@ -56,7 +57,7 @@ class RecallBotClientTest {
     void createsAudioOnlyBotWithElevenLabsAndPerfectDiarization() throws Exception {
         RecallBotClient recallBotClient = client("recall-key");
 
-        InviteBotResponse result = recallBotClient.invite(request());
+        InviteBotResponse result = recallBotClient.invite(request(), MEETING_ID);
 
         assertThat(result.botId()).isEqualTo(BOT_ID);
         assertThat(authorization.get()).isEqualTo("recall-key");
@@ -73,6 +74,7 @@ class RecallBotClientTest {
         assertThat(root.path("recording_config").path("transcript").path("diarization")
                 .path("use_separate_streams_when_available").asBoolean()).isTrue();
         assertThat(root.path("recording_config").has("realtime_endpoints")).isFalse();
+        assertThat(root.path("metadata").path("meeting_id").asText()).isEqualTo(MEETING_ID.toString());
         assertThat(root.path("metadata").path("workspace_id").asText()).isEqualTo(WORKSPACE_ID.toString());
         assertThat(root.path("metadata").path("meeting_type").asText()).isEqualTo("GOOGLE");
     }
@@ -82,7 +84,7 @@ class RecallBotClientTest {
         responseStatus = 400;
         responseBody = "{\"meeting_url\":[\"Enter a valid URL.\"]}";
 
-        assertThatThrownBy(() -> client("recall-key").invite(request()))
+        assertThatThrownBy(() -> client("recall-key").invite(request(), MEETING_ID))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode())
                                 .isEqualTo(MeetingError.BOT_INVITATION_REJECTED));
@@ -93,14 +95,14 @@ class RecallBotClientTest {
         responseStatus = 507;
         responseBody = "{}";
 
-        assertThatThrownBy(() -> client("recall-key").invite(request()))
+        assertThatThrownBy(() -> client("recall-key").invite(request(), MEETING_ID))
                 .isInstanceOfSatisfying(BusinessException.class,
                         exception -> assertThat(exception.getErrorCode()).isEqualTo(MeetingError.RECALL_UNAVAILABLE));
     }
 
     @Test
     void rejectsMissingApiKeyBeforeCallingRecall() {
-        assertThatThrownBy(() -> client("").invite(request()))
+        assertThatThrownBy(() -> client("").invite(request(), MEETING_ID))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("RECALL_API_KEY");
         assertThat(requestBody.get()).isNull();

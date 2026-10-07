@@ -16,4 +16,6 @@ public interface MeetingRepository extends JpaRepository<Meeting, UUID> {
                                                                  Collection<MeetingStatus> statuses);
 
     List<Meeting> findByWorkspaceIdAndDeletedAtIsNullOrderByCreatedAtDesc(UUID workspaceId);
+
+    boolean existsByMeetingUrlAndStatusInAndDeletedAtIsNull(String meetingUrl, Collection<MeetingStatus> statuses);
 }

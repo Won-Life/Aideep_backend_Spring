@@ -32,6 +32,24 @@ class MeetingMigrationIntegrationTest {
                     'REQUESTED', '2026-10-05T10:00:00Z', '2026-10-05T10:00:00Z')
             """;
 
+    private static final String INSERT_SECOND_MEETING_SAME_URL = """
+            insert into aideep.meetings
+                (meeting_id, workspace_id, node_id, user_id, meeting_url, bot_type,
+                 status, created_at, updated_at)
+            values ('99999999-9999-4999-8999-999999999999', '22222222-2222-4222-8222-222222222222',
+                    '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444',
+                    'https://meet.test/abc', 'GOOGLE',
+                    'REQUESTED', '2026-10-05T11:00:00Z', '2026-10-05T11:00:00Z')
+            """;
+
+    private int countByUrl(java.sql.Statement statement, String meetingUrl) throws SQLException {
+        try (var rows = statement.executeQuery(
+                "select count(*) from aideep.meetings where meeting_url = '" + meetingUrl + "'")) {
+            rows.next();
+            return rows.getInt(1);
+        }
+    }
+
     @BeforeEach
     void setUp() throws SQLException {
         try (Connection connection = connect(); var statement = connection.createStatement()) {
@@ -43,6 +61,26 @@ class MeetingMigrationIntegrationTest {
             statement.execute("create type node_type_enum as enum ('PROJECT', 'DATA', 'RESOURCE', 'ARCHIVE')");
             statement.execute("create type workspace_role_enum as enum ('OWNER', 'EDITOR', 'VIEWER')");
             ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V1__baseline.sql"));
+        }
+    }
+
+    /**
+     * V8의 부분 unique 인덱스가 진행 중인 같은 링크만 막고 종료된 회의는 허용하는지 검증한다.
+     */
+    @Test
+    void createsPartialUniqueIndexOnActiveMeetingUrl() throws SQLException {
+        try (Connection connection = connect(); var statement = connection.createStatement()) {
+            migrate(connection);
+            seedReferences(statement);
+            statement.execute(INSERT_MEETING);
+
+            assertThatThrownBy(() -> statement.execute(INSERT_SECOND_MEETING_SAME_URL))
+                    .isInstanceOf(SQLException.class)
+                    .extracting(error -> ((SQLException) error).getSQLState()).isEqualTo("23505");
+
+            statement.execute("update aideep.meetings set status = 'DONE' where meeting_url = 'https://meet.test/abc'");
+            statement.execute(INSERT_SECOND_MEETING_SAME_URL);
+            assertThat(countByUrl(statement, "https://meet.test/abc")).isEqualTo(2);
         }
     }
 
@@ -124,6 +162,8 @@ class MeetingMigrationIntegrationTest {
 
     private void migrate(Connection connection) {
         ScriptUtils.executeSqlScript(connection, new ClassPathResource("db/migration/V5__add_meetings.sql"));
+        ScriptUtils.executeSqlScript(connection,
+                new ClassPathResource("db/migration/V8__add_meetings_active_url_unique.sql"));
     }
 
     private Connection connect() throws SQLException {

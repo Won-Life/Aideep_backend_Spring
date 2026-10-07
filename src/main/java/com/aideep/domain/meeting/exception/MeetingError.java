@@ -21,7 +21,19 @@ public enum MeetingError implements ErrorCode {
     WEBHOOK_SIGNATURE_INVALID(
             HttpStatus.UNAUTHORIZED,
             "MEETING-004",
-            "회의 봇 웹훅 서명이 올바르지 않습니다.");
+            "회의 봇 웹훅 서명이 올바르지 않습니다."),
+    WORKSPACE_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "MEETING-005",
+            "워크스페이스를 찾을 수 없습니다."),
+    NODE_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "MEETING-006",
+            "워크스페이스에서 회의 노드를 찾을 수 없습니다."),
+    BOT_ALREADY_INVITED(
+            HttpStatus.CONFLICT,
+            "MEETING-007",
+            "이미 봇이 참여 중인 회의입니다.");
 
     private final HttpStatus status;
     private final String code;

@@ -12,4 +12,6 @@ public interface NodeRepository extends JpaRepository<Node, UUID> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Node> findByIdAndWorkspaceIdAndDeletedAtIsNull(UUID id, UUID workspaceId);
+
+    boolean existsByIdAndWorkspaceIdAndDeletedAtIsNull(UUID id, UUID workspaceId);
 }
