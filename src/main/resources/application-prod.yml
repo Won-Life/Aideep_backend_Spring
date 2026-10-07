@@ -29,6 +29,7 @@ spring:
         enabled: ${REDIS_SSL:false}
 server:
   port: ${PORT:8090}
+  forward-headers-strategy: framework
 
 management:
   statsd:
