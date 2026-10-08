@@ -120,7 +120,9 @@ public class AuthService {
         if (redisAuthStore.get("verified:" + body.email()) == null)
             throw new BusinessException(AuthError.EMAIL_UNVERIFIED);
         try {
+            // 닉네임은 가입 시점에 임의로 지정하고, 온보딩에서 사용자가 원하는 값으로 바꿀 수 있게 한다.
             authDatabase.createUser(body.email(), passwordEncoder.encode(body.password()),
+                    RandomNickname.generate(),
                     new TermConsent(body.termsOfService(), body.privacyPolicy(), body.marketing()));
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(AuthError.EMAIL_ALREADY_EXISTS);
