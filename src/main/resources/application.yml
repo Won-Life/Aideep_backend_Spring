@@ -47,6 +47,7 @@ recall:
   api-key: ${RECALL_API_KEY:}
   bot-name: ${RECALL_BOT_NAME:AIDEEP Meeting Notetaker}
   webhook-secret: ${RECALL_WEBHOOK_SECRET:}
+  transcript-webhook-url: ${AI_TRANSCRIPT_WEBHOOK_URL:}
 
 internal:
   api:

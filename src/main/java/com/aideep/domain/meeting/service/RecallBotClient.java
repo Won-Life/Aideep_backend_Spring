@@ -18,6 +18,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -26,6 +27,7 @@ import java.util.UUID;
 public class RecallBotClient {
 
     private static final String ELEVENLABS_MODEL = "scribe_v2_realtime";
+    private static final String TRANSCRIPT_DATA_EVENT = "transcript.data";
 
     private final RecallProperties recallProperties;
     private final RestClient restClient;
@@ -76,10 +78,12 @@ public class RecallBotClient {
     }
 
     private RecallCreateBotRequest createRequest(InviteBotRequest inviteBotRequest, UUID meetingId) {
+        // language_code를 지정하지 않아야 scribe_v2_realtime이 한국어·영어를 자동 감지하고 발화 중 언어 전환도 따라간다.
         ElevenLabsStreaming elevenLabsStreaming = new ElevenLabsStreaming(ELEVENLABS_MODEL);
         Transcript transcript = new Transcript(
                 new TranscriptProvider(elevenLabsStreaming), new Diarization(true));
-        RecordingConfig recordingConfig = new RecordingConfig(null, null, Map.of(), transcript);
+        RecordingConfig recordingConfig = new RecordingConfig(
+                null, null, Map.of(), transcript, realtimeEndpoints());
         // meeting_id는 응답 처리 실패로 bot_id를 저장하지 못한 봇을 회의로 되짚는 유일한 수단이다.
         Map<String, String> metadata = Map.of(
                 "meeting_id", meetingId.toString(),
@@ -87,6 +91,15 @@ public class RecallBotClient {
                 "meeting_type", inviteBotRequest.type().name());
         return new RecallCreateBotRequest(
                 inviteBotRequest.url(), recallProperties.botName(), recordingConfig, metadata);
+    }
+
+    private List<RealtimeEndpoint> realtimeEndpoints() {
+        if (isBlank(recallProperties.transcriptWebhookUrl())) {
+            log.warn("AI_TRANSCRIPT_WEBHOOK_URL is not configured; the bot will not deliver realtime transcripts.");
+            return null;
+        }
+        return List.of(new RealtimeEndpoint(
+                "webhook", recallProperties.transcriptWebhookUrl(), List.of(TRANSCRIPT_DATA_EVENT)));
     }
 
     private void requireConfiguration() {
@@ -117,8 +130,18 @@ public class RecallBotClient {
             @JsonProperty("retention") Object retention,
             @JsonProperty("video_mixed_mp4") Object videoMixedMp4,
             @JsonProperty("audio_mixed_mp3") Map<String, Object> audioMixedMp3,
-            Transcript transcript
+            Transcript transcript,
+
+            /** 설정되지 않으면 키 자체를 보내지 않아야 하므로 클래스의 ALWAYS 정책을 property 단위로 되돌린다. */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @JsonProperty("realtime_endpoints") List<RealtimeEndpoint> realtimeEndpoints
     ) {
+    }
+
+    /**
+     * 실시간 in-call 데이터 전송 대상. 대시보드 웹훅과는 별개의 설정이며 봇 생성 시에만 지정할 수 있다.
+     */
+    private record RealtimeEndpoint(String type, String url, List<String> events) {
     }
 
     private record Transcript(TranscriptProvider provider, Diarization diarization) {
