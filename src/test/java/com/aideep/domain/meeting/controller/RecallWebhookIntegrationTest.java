@@ -373,7 +373,8 @@ class RecallWebhookIntegrationTest {
         @Bean
         RecallProperties recallProperties() {
             return new RecallProperties(
-                    "https://example.test/api/v1/bot/", "recall-key", "AIDEEP Notetaker", "whsec_" + SECRET_KEY);
+                    "https://example.test/api/v1/bot/", "recall-key", "AIDEEP Notetaker",
+                    "whsec_" + SECRET_KEY, "");
         }
 
         @Bean

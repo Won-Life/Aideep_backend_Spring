@@ -123,7 +123,7 @@ class RecallWebhookVerifierTest {
 
     private RecallWebhookVerifier verifier(String webhookSecret) {
         RecallProperties recallProperties = new RecallProperties(
-                "https://example.test/api/v1/bot/", "recall-key", "AIDEEP Notetaker", webhookSecret);
+                "https://example.test/api/v1/bot/", "recall-key", "AIDEEP Notetaker", webhookSecret, "");
         return new RecallWebhookVerifier(recallProperties, clock);
     }
 

@@ -30,6 +30,7 @@ class RecallBotClientTest {
     private static final UUID NODE_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
     private static final UUID BOT_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
     private static final UUID MEETING_ID = UUID.fromString("66666666-6666-4666-8666-666666666666");
+    private static final String TRANSCRIPT_WEBHOOK_URL = "https://ai.example.test/webhooks/recall/transcript";
 
     private final AtomicReference<String> authorization = new AtomicReference<>();
     private final AtomicReference<String> requestBody = new AtomicReference<>();
@@ -73,10 +74,43 @@ class RecallBotClientTest {
                 .path("elevenlabs_streaming").path("model_id").asText()).isEqualTo("scribe_v2_realtime");
         assertThat(root.path("recording_config").path("transcript").path("diarization")
                 .path("use_separate_streams_when_available").asBoolean()).isTrue();
-        assertThat(root.path("recording_config").has("realtime_endpoints")).isFalse();
         assertThat(root.path("metadata").path("meeting_id").asText()).isEqualTo(MEETING_ID.toString());
         assertThat(root.path("metadata").path("workspace_id").asText()).isEqualTo(WORKSPACE_ID.toString());
         assertThat(root.path("metadata").path("meeting_type").asText()).isEqualTo("GOOGLE");
+    }
+
+    @Test
+    void registersAiServerAsRealtimeTranscriptWebhook() throws Exception {
+        RecallBotClient recallBotClient = client("recall-key", TRANSCRIPT_WEBHOOK_URL);
+
+        recallBotClient.invite(request(), MEETING_ID);
+
+        JsonNode realtimeEndpoints = jsonMapper.readTree(requestBody.get())
+                .path("recording_config").path("realtime_endpoints");
+        assertThat(realtimeEndpoints.isArray()).isTrue();
+        assertThat(realtimeEndpoints).hasSize(1);
+        JsonNode endpoint = realtimeEndpoints.get(0);
+        assertThat(endpoint.path("type").asText()).isEqualTo("webhook");
+        assertThat(endpoint.path("url").asText()).isEqualTo(TRANSCRIPT_WEBHOOK_URL);
+        assertThat(endpoint.path("events")).singleElement()
+                .satisfies(event -> assertThat(event.asText()).isEqualTo("transcript.data"));
+    }
+
+    @Test
+    void omitsLanguageCodeSoKoreanAndEnglishAreDetectedAutomatically() throws Exception {
+        client("recall-key", TRANSCRIPT_WEBHOOK_URL).invite(request(), MEETING_ID);
+
+        JsonNode elevenLabsStreaming = jsonMapper.readTree(requestBody.get())
+                .path("recording_config").path("transcript").path("provider").path("elevenlabs_streaming");
+        assertThat(elevenLabsStreaming.has("language_code")).isFalse();
+    }
+
+    @Test
+    void omitsRealtimeEndpointsWhenAiServerUrlIsNotConfigured() throws Exception {
+        client("recall-key").invite(request(), MEETING_ID);
+
+        assertThat(jsonMapper.readTree(requestBody.get()).path("recording_config").has("realtime_endpoints"))
+                .isFalse();
     }
 
     @Test
@@ -109,9 +143,13 @@ class RecallBotClientTest {
     }
 
     private RecallBotClient client(String apiKey) {
+        return client(apiKey, "");
+    }
+
+    private RecallBotClient client(String apiKey, String transcriptWebhookUrl) {
         String apiUrl = "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/api/v1/bot/";
         RecallProperties recallProperties = new RecallProperties(
-                apiUrl, apiKey, "AIDEEP Notetaker", "");
+                apiUrl, apiKey, "AIDEEP Notetaker", "", transcriptWebhookUrl);
         return new RecallBotClient(recallProperties, RestClient.create());
     }
 
