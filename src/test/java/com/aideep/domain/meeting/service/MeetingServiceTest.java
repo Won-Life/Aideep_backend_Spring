@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.aideep.domain.meeting.dto.event.MeetingRealtimeEvent;
+import com.aideep.domain.meeting.dto.event.MeetingWorkspaceEvent;
 import com.aideep.domain.meeting.dto.request.InviteBotRequest;
 import com.aideep.domain.meeting.dto.response.InviteBotResponse;
 import com.aideep.domain.meeting.entity.Bottype;
@@ -23,6 +25,7 @@ import com.aideep.global.exception.BusinessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -43,6 +46,7 @@ class MeetingServiceTest {
     private MeetingRepository meetingRepository;
     private WorkspaceQueryService workspaceQueryService;
     private NodeQueryService nodeQueryService;
+    private ApplicationEventPublisher applicationEventPublisher;
     private MeetingService meetingService;
 
     @BeforeEach
@@ -51,8 +55,9 @@ class MeetingServiceTest {
         meetingRepository = mock(MeetingRepository.class);
         workspaceQueryService = mock(WorkspaceQueryService.class);
         nodeQueryService = mock(NodeQueryService.class);
+        applicationEventPublisher = mock(ApplicationEventPublisher.class);
         meetingService = new MeetingService(recallBotClient, meetingRepository, workspaceQueryService,
-                nodeQueryService, Clock.fixed(NOW, ZoneOffset.UTC));
+                nodeQueryService, applicationEventPublisher, Clock.fixed(NOW, ZoneOffset.UTC));
         when(workspaceQueryService.existsActiveWorkspace(WORKSPACE_ID)).thenReturn(true);
         when(nodeQueryService.existsActiveNode(WORKSPACE_ID, NODE_ID)).thenReturn(true);
         when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -107,6 +112,37 @@ class MeetingServiceTest {
         verify(meetingRepository, org.mockito.Mockito.atLeastOnce()).save(meetingCaptor.capture());
         assertThat(meetingCaptor.getAllValues()).allSatisfy(meeting -> assertThat(meeting.getId()).isNotNull());
         assertThat(meetingCaptor.getValue().getBotId()).isEqualTo(BOT_ID);
+    }
+
+    @Test
+    void publishesBotRequestedEventAfterLinkingTheBot() {
+        when(recallBotClient.invite(eq(request()), any(UUID.class))).thenReturn(new InviteBotResponse(BOT_ID));
+
+        meetingService.inviteBot(request(), USER_ID);
+
+        ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+        verify(applicationEventPublisher).publishEvent(eventCaptor.capture());
+        MeetingWorkspaceEvent payload = ((MeetingRealtimeEvent) eventCaptor.getValue()).payload();
+        assertThat(payload.type()).isEqualTo(MeetingWorkspaceEvent.BOT_REQUESTED);
+        assertThat(payload.workspaceId()).isEqualTo(WORKSPACE_ID);
+        assertThat(payload.nodeId()).isEqualTo(NODE_ID);
+        assertThat(payload.userId()).isEqualTo(USER_ID);
+        assertThat(payload.status()).isEqualTo(MeetingStatus.REQUESTED.name());
+        assertThat(payload.occurredAt()).isEqualTo(NOW);
+        assertThat(payload.statusSubCode()).isNull();
+        // linkBot 이후에 발행해야 WS payload의 botId가 비지 않는다.
+        assertThat(payload.botId()).isEqualTo(BOT_ID);
+    }
+
+    @Test
+    void doesNotPublishBotRequestedEventWhenRecallRejectsTheInvitation() {
+        when(recallBotClient.invite(eq(request()), any(UUID.class)))
+                .thenThrow(new BusinessException(MeetingError.BOT_INVITATION_REJECTED));
+
+        assertThatThrownBy(() -> meetingService.inviteBot(request(), USER_ID))
+                .isInstanceOf(BusinessException.class);
+
+        verifyNoInteractions(applicationEventPublisher);
     }
 
     @Test
