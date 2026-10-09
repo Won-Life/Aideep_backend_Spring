@@ -318,7 +318,9 @@ class AuthIntegrationTest {
         postJson("/signup", signup).andExpect(status().isCreated()).andExpect(jsonPath("$.success").value("회원가입 성공"));
         assertThat(passwordEncoder.matches("new-password",
                 authUserRepository.findByEmail("new@example.com").orElseThrow().getPassword())).isTrue();
-        assertThat(authUserRepository.findByEmail("new@example.com").orElseThrow().getUsername()).isNull();
+        assertThat(authUserRepository.findByEmail("new@example.com").orElseThrow().getUsername())
+                .as("가입 시점에 임의 닉네임이 지정된다")
+                .matches("[가-힣]+\\d{4}");
         assertThat(redisAuthStore.get("verified:new@example.com")).isNull();
         UUID signedUpUserId = authUserRepository.findByEmail("new@example.com").orElseThrow().getId();
         assertThat(jdbcTemplate.queryForList(

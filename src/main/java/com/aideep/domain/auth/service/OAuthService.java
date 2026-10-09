@@ -148,8 +148,9 @@ public class OAuthService {
 
         /** 회원가입 경로. 사용자와 약관 동의를 한 트랜잭션에서 저장해 둘 중 하나만 남는 상태를 막는다. */
         @Transactional
-        public AuthUser createUser(String email, String password, TermConsent termConsent) {
-            AuthUser user = createUser(email, password);
+        public AuthUser createUser(String email, String password, String username, TermConsent termConsent) {
+            AuthUser user = authUserRepository.saveAndFlush(
+                    new AuthUser(email, password, username, clock.instant()));
             userTermAgreementService.record(user.getId(), termConsent);
             return user;
         }
