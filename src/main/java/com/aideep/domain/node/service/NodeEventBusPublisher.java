@@ -1,7 +1,7 @@
 package com.aideep.domain.node.service;
 
-import com.aideep.domain.node.dto.event.NodeEventBusEnvelope;
 import com.aideep.domain.node.dto.event.NodeRealtimeEvent;
+import com.aideep.global.event.RealtimeEventEnvelope;
 import java.time.Clock;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -15,7 +15,7 @@ import tools.jackson.databind.ObjectMapper;
 /** DB 성공과 분리된 best-effort 실시간 알림. WS 연결과 room 라우팅은 aideep-ws가 담당한다. */
 @Service
 public class NodeEventBusPublisher {
-    public static final String CHANNEL = "aideep.realtime.v1";
+    public static final String CHANNEL = RealtimeEventEnvelope.CHANNEL;
     private static final Logger log = LoggerFactory.getLogger(NodeEventBusPublisher.class);
 
     private final StringRedisTemplate stringRedisTemplate;
@@ -38,8 +38,8 @@ public class NodeEventBusPublisher {
                     nodeRealtimeEvent.eventId(), workspaceId, exception);
         }
         try {
-            NodeEventBusEnvelope nodeEventBusEnvelope = new NodeEventBusEnvelope(1, "WORKSPACE_EVENT",
-                    UUID.randomUUID(), clock.instant(), "spring-api", nodeRealtimeEvent.payload());
+            var nodeEventBusEnvelope = RealtimeEventEnvelope.workspaceEvent(
+                    UUID.randomUUID(), clock.instant(), nodeRealtimeEvent.payload());
             stringRedisTemplate.convertAndSend(CHANNEL, objectMapper.writeValueAsString(nodeEventBusEnvelope));
         } catch (RuntimeException exception) {
             log.error("Realtime event publication failed. eventId={} workspaceId={} type={}",
