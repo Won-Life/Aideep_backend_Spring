@@ -3,7 +3,9 @@ package com.aideep.domain.meeting.controller;
 import com.aideep.domain.auth.entity.AuthUser;
 import com.aideep.domain.auth.security.UserDetail;
 import com.aideep.domain.meeting.dto.request.InviteBotRequest;
+import com.aideep.domain.meeting.dto.response.ActiveMeetingResponse;
 import com.aideep.domain.meeting.dto.response.InviteBotResponse;
+import com.aideep.domain.meeting.service.MeetingQueryService;
 import com.aideep.domain.meeting.service.MeetingService;
 import com.aideep.domain.workspace.entity.WorkspacePermission;
 import com.aideep.domain.workspace.service.WorkspacePermissionService;
@@ -22,12 +24,14 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -36,6 +40,8 @@ class MeetingControllerTest {
 
     private static final UUID WORKSPACE_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
     private static final UUID BOT_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
+    private static final UUID NODE_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
+    private static final UUID MEETING_ID = UUID.fromString("66666666-6666-4666-8666-666666666666");
     private static final String VALID_REQUEST = """
             {
               "url": "https://meet.google.com/abc-defg-hij",
@@ -46,6 +52,7 @@ class MeetingControllerTest {
             """;
 
     private MeetingService meetingService;
+    private MeetingQueryService meetingQueryService;
     private WorkspacePermissionService workspacePermissionService;
     private UserDetail userDetail;
     private MockMvc mockMvc;
@@ -53,11 +60,12 @@ class MeetingControllerTest {
     @BeforeEach
     void setUp() {
         meetingService = mock(MeetingService.class);
+        meetingQueryService = mock(MeetingQueryService.class);
         workspacePermissionService = mock(WorkspacePermissionService.class);
         AuthUser authUser = new AuthUser("user@example.com", "password", Instant.EPOCH);
         userDetail = UserDetail.from(authUser, false);
         mockMvc = MockMvcBuilders.standaloneSetup(
-                        new MeetingController(meetingService, workspacePermissionService))
+                        new MeetingController(meetingService, meetingQueryService, workspacePermissionService))
                 .setCustomArgumentResolvers(authenticationPrincipalResolver())
                 .setControllerAdvice(new GlobalExceptionHandler(), new ResponseWrappingAdvice())
                 .build();
@@ -138,6 +146,37 @@ class MeetingControllerTest {
                 .andExpect(jsonPath("$.error.errorCode").value("COMMON403"));
 
         verifyNoInteractions(meetingService);
+    }
+
+    @Test
+    void returnsActiveMeetingsForWorkspaceViewers() throws Exception {
+        when(meetingQueryService.findActiveMeetings(WORKSPACE_ID)).thenReturn(List.of(
+                new ActiveMeetingResponse(MEETING_ID, NODE_ID, BOT_ID, "RECORDING", null,
+                        Instant.parse("2026-10-06T01:10:00Z"), Instant.parse("2026-10-06T01:00:00Z"))));
+
+        mockMvc.perform(get("/v1/aideep/api/meeting").param("workspaceId", WORKSPACE_ID.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.resultType").value("SUCCESS"))
+                .andExpect(jsonPath("$.success[0].meetingId").value(MEETING_ID.toString()))
+                .andExpect(jsonPath("$.success[0].nodeId").value(NODE_ID.toString()))
+                .andExpect(jsonPath("$.success[0].botId").value(BOT_ID.toString()))
+                .andExpect(jsonPath("$.success[0].status").value("RECORDING"));
+
+        verify(workspacePermissionService).requirePermission(
+                userDetail.userId(), WORKSPACE_ID, WorkspacePermission.VIEW);
+    }
+
+    @Test
+    void deniesActiveMeetingLookupWithoutWorkspaceMembership() throws Exception {
+        doThrow(new org.springframework.security.access.AccessDeniedException("denied"))
+                .when(workspacePermissionService)
+                .requirePermission(userDetail.userId(), WORKSPACE_ID, WorkspacePermission.VIEW);
+
+        mockMvc.perform(get("/v1/aideep/api/meeting").param("workspaceId", WORKSPACE_ID.toString()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON403"));
+
+        verifyNoInteractions(meetingQueryService);
     }
 
     private HandlerMethodArgumentResolver authenticationPrincipalResolver() {

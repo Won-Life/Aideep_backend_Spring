@@ -18,6 +18,10 @@
   별도 Redis Stream으로 통지하는 계약(AI 서버 소비자 관점)
 - [회의 상태 수신과 AI 맥락 전달 계약](meeting-ai-context-contract.md): Recall 봇 상태 웹훅으로 회의 상태를 반영하고,
   녹음 시작 시 회의 이벤트를 발행해 AI 서버가 내부 API로 회의 노드의 하위 그래프를 조회하는 경로
+- [회의 상태 실시간 전파 계약](meeting-realtime-event-contract.md): 회의 봇의 요청·입장·퇴장·실패를
+  `aideep.realtime.v1`로 발행해 `aideep-ws`가 프런트엔드에 전달하는 경로와 재접속 복구용 조회 API
+- [회의 실시간 이벤트 — aideep-ws 작업 기획](meeting-realtime-ws-server-spec.md): 위 이벤트를 받아
+  Socket.IO 워크스페이스 room으로 전달하는 `aideep-ws` 쪽 작업 범위와 검증 시나리오
 
 ## 현재 시스템 맥락
 

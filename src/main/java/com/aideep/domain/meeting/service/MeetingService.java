@@ -1,5 +1,7 @@
 package com.aideep.domain.meeting.service;
 
+import com.aideep.domain.meeting.dto.event.MeetingRealtimeEvent;
+import com.aideep.domain.meeting.dto.event.MeetingWorkspaceEvent;
 import com.aideep.domain.meeting.dto.request.InviteBotRequest;
 import com.aideep.domain.meeting.dto.response.InviteBotResponse;
 import com.aideep.domain.meeting.entity.Meeting;
@@ -9,6 +11,7 @@ import com.aideep.domain.meeting.repository.MeetingRepository;
 import com.aideep.domain.node.service.NodeQueryService;
 import com.aideep.domain.workspace.service.WorkspaceQueryService;
 import com.aideep.global.exception.BusinessException;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,15 +27,17 @@ public class MeetingService {
     private final MeetingRepository meetingRepository;
     private final WorkspaceQueryService workspaceQueryService;
     private final NodeQueryService nodeQueryService;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final Clock clock;
 
     public MeetingService(RecallBotClient recallBotClient, MeetingRepository meetingRepository,
                           WorkspaceQueryService workspaceQueryService, NodeQueryService nodeQueryService,
-                          Clock clock) {
+                          ApplicationEventPublisher applicationEventPublisher, Clock clock) {
         this.recallBotClient = recallBotClient;
         this.meetingRepository = meetingRepository;
         this.workspaceQueryService = workspaceQueryService;
         this.nodeQueryService = nodeQueryService;
+        this.applicationEventPublisher = applicationEventPublisher;
         this.clock = clock;
     }
 
@@ -56,6 +61,9 @@ public class MeetingService {
 
         meeting.linkBot(inviteBotResponse.botId(), clock.instant());
         meetingRepository.save(meeting);
+        // 커밋 후에만 발행한다. linkBot 이후여야 payload의 botId가 비지 않는다.
+        applicationEventPublisher.publishEvent(
+                MeetingRealtimeEvent.of(MeetingWorkspaceEvent.botRequested(meeting, meeting.getCreatedAt())));
         return inviteBotResponse;
     }
 
