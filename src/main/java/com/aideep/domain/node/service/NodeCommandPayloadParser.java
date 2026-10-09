@@ -4,6 +4,7 @@ import com.aideep.domain.node.dto.event.NodeCreateCommand;
 import com.aideep.domain.node.dto.event.NodeEventEnvelope;
 import com.aideep.domain.node.dto.event.NodePatchCommand;
 import com.aideep.domain.node.dto.event.NodePosition;
+import com.aideep.domain.node.entity.Edge;
 import com.aideep.domain.node.entity.Node;
 import com.aideep.domain.node.entity.NodeType;
 import com.aideep.domain.node.exception.NodeError;
@@ -28,7 +29,18 @@ public class NodeCommandPayloadParser {
         if (title.length() > Node.MAX_TITLE_LENGTH) {
             throw permanent("title must not exceed " + Node.MAX_TITLE_LENGTH + " characters");
         }
-        return new NodeCreateCommand(title, nodeType, position, data);
+        UUID parentNodeId = payload.has("parentNodeId") ? requiredUuid(payload, "parentNodeId") : null;
+        String sourceHandle = optionalHandle(payload, "sourceHandle");
+        String targetHandle = optionalHandle(payload, "targetHandle");
+        return new NodeCreateCommand(title, nodeType, position, data, parentNodeId, sourceHandle, targetHandle);
+    }
+
+    private String optionalHandle(JsonNode parent, String fieldName) {
+        String handle = optionalText(parent, fieldName);
+        if (handle != null && handle.length() > Edge.MAX_HANDLE_LENGTH) {
+            throw permanent(fieldName + " must not exceed " + Edge.MAX_HANDLE_LENGTH + " characters");
+        }
+        return handle;
     }
 
     public NodePatchCommand parsePatch(NodeEventEnvelope nodeEventEnvelope) {
