@@ -1,8 +1,8 @@
 package com.aideep.domain.node.service;
 
-import com.aideep.domain.node.dto.event.NodeEventBusEnvelope;
 import com.aideep.domain.node.dto.event.NodeRealtimeEvent;
 import com.aideep.domain.node.dto.event.NodeWorkspaceEvent;
+import com.aideep.global.event.RealtimeEventEnvelope;
 import java.time.Clock;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -20,7 +20,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @Service
 public class NodeEventBusPublisher {
-    public static final String CHANNEL = "aideep.realtime.v1";
+    public static final String CHANNEL = RealtimeEventEnvelope.CHANNEL;
     private static final Logger log = LoggerFactory.getLogger(NodeEventBusPublisher.class);
 
     private final StringRedisTemplate stringRedisTemplate;
@@ -44,9 +44,9 @@ public class NodeEventBusPublisher {
         }
         for (NodeWorkspaceEvent nodeWorkspaceEvent : nodeRealtimeEvent.payloads()) {
             try {
-                NodeEventBusEnvelope nodeEventBusEnvelope = new NodeEventBusEnvelope(1, "WORKSPACE_EVENT",
-                        UUID.randomUUID(), clock.instant(), "spring-api", nodeWorkspaceEvent);
-                stringRedisTemplate.convertAndSend(CHANNEL, objectMapper.writeValueAsString(nodeEventBusEnvelope));
+                var realtimeEventEnvelope = RealtimeEventEnvelope.workspaceEvent(
+                        UUID.randomUUID(), clock.instant(), nodeWorkspaceEvent);
+                stringRedisTemplate.convertAndSend(CHANNEL, objectMapper.writeValueAsString(realtimeEventEnvelope));
             } catch (RuntimeException exception) {
                 log.error("Realtime event publication failed. eventId={} workspaceId={} type={}",
                         nodeRealtimeEvent.eventId(), workspaceId, nodeWorkspaceEvent.type(), exception);
