@@ -1,6 +1,7 @@
 package com.aideep.domain.node.service;
 
 import com.aideep.domain.node.dto.event.NodeRealtimeEvent;
+import com.aideep.domain.node.dto.event.NodeWorkspaceEvent;
 import com.aideep.global.event.RealtimeEventEnvelope;
 import java.time.Clock;
 import java.util.UUID;
@@ -12,7 +13,11 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import tools.jackson.databind.ObjectMapper;
 
-/** DB 성공과 분리된 best-effort 실시간 알림. WS 연결과 room 라우팅은 aideep-ws가 담당한다. */
+/**
+ * DB 성공과 분리된 best-effort 실시간 알림. WS 연결과 room 라우팅은 aideep-ws가 담당한다.
+ * 한 명령이 만든 payload들은 받은 순서대로 발행하며(NODE_CREATE → EDGE_CREATE),
+ * 하나가 실패해도 나머지 발행을 멈추지 않는다.
+ */
 @Service
 public class NodeEventBusPublisher {
     public static final String CHANNEL = RealtimeEventEnvelope.CHANNEL;
@@ -30,20 +35,22 @@ public class NodeEventBusPublisher {
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void publish(NodeRealtimeEvent nodeRealtimeEvent) {
-        UUID workspaceId = nodeRealtimeEvent.payload().workspaceId();
+        UUID workspaceId = nodeRealtimeEvent.workspaceId();
         try {
             stringRedisTemplate.delete("workspace:sync:" + workspaceId);
         } catch (RuntimeException exception) {
             log.error("Workspace cache invalidation failed. eventId={} workspaceId={}",
                     nodeRealtimeEvent.eventId(), workspaceId, exception);
         }
-        try {
-            var nodeEventBusEnvelope = RealtimeEventEnvelope.workspaceEvent(
-                    UUID.randomUUID(), clock.instant(), nodeRealtimeEvent.payload());
-            stringRedisTemplate.convertAndSend(CHANNEL, objectMapper.writeValueAsString(nodeEventBusEnvelope));
-        } catch (RuntimeException exception) {
-            log.error("Realtime event publication failed. eventId={} workspaceId={} type={}",
-                    nodeRealtimeEvent.eventId(), workspaceId, nodeRealtimeEvent.payload().type(), exception);
+        for (NodeWorkspaceEvent nodeWorkspaceEvent : nodeRealtimeEvent.payloads()) {
+            try {
+                var realtimeEventEnvelope = RealtimeEventEnvelope.workspaceEvent(
+                        UUID.randomUUID(), clock.instant(), nodeWorkspaceEvent);
+                stringRedisTemplate.convertAndSend(CHANNEL, objectMapper.writeValueAsString(realtimeEventEnvelope));
+            } catch (RuntimeException exception) {
+                log.error("Realtime event publication failed. eventId={} workspaceId={} type={}",
+                        nodeRealtimeEvent.eventId(), workspaceId, nodeWorkspaceEvent.type(), exception);
+            }
         }
     }
 }

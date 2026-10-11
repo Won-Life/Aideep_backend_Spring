@@ -49,6 +49,48 @@ class NodeCommandPayloadParserTest {
     }
 
     @Test
+    void parsesOptionalParentNodeIdAndHandlesFromCreatePayload() {
+        NodeCreateCommand withParent = nodeCommandPayloadParser.parseCreate(envelope("NODE_CREATE_REQUESTED",
+                "{\"title\":\"t\",\"nodeType\":\"DATA\",\"position\":{\"x\":1,\"y\":2},\"data\":{},"
+                        + "\"parentNodeId\":\"" + NODE_ID + "\",\"sourceHandle\":\"right\",\"targetHandle\":\"left\"}"));
+        NodeCreateCommand withoutParent = nodeCommandPayloadParser.parseCreate(envelope("NODE_CREATE_REQUESTED",
+                "{\"title\":\"t\",\"nodeType\":\"DATA\",\"position\":{\"x\":1,\"y\":2},\"data\":{}}"));
+
+        assertThat(withParent.parentNodeId()).isEqualTo(UUID.fromString(NODE_ID));
+        assertThat(withParent.sourceHandle()).isEqualTo("right");
+        assertThat(withParent.targetHandle()).isEqualTo("left");
+        assertThat(withoutParent.parentNodeId()).isNull();
+    }
+
+    @Test
+    void treatsExplicitNullParentNodeIdAndHandlesAsAbsent() {
+        NodeCreateCommand nodeCreateCommand = nodeCommandPayloadParser.parseCreate(envelope("NODE_CREATE_REQUESTED",
+                "{\"title\":\"t\",\"nodeType\":\"DATA\",\"position\":{\"x\":1,\"y\":2},\"data\":{},"
+                        + "\"parentNodeId\":null,\"sourceHandle\":null,\"targetHandle\":null}"));
+
+        assertThat(nodeCreateCommand.parentNodeId()).isNull();
+        assertThat(nodeCreateCommand.sourceHandle()).isNull();
+        assertThat(nodeCreateCommand.targetHandle()).isNull();
+        assertThat(nodeCreateCommand.title()).isEqualTo("t");
+    }
+
+    @Test
+    void rejectsCreatePayloadWithMalformedParentNodeId() {
+        assertThatThrownBy(() -> nodeCommandPayloadParser.parseCreate(envelope("NODE_CREATE_REQUESTED",
+                "{\"title\":\"t\",\"nodeType\":\"DATA\",\"position\":{\"x\":1,\"y\":2},\"data\":{},"
+                        + "\"parentNodeId\":\"not-a-uuid\"}")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
+                .isEqualTo("NODE-012");
+        assertThatThrownBy(() -> nodeCommandPayloadParser.parseCreate(envelope("NODE_CREATE_REQUESTED",
+                "{\"title\":\"t\",\"nodeType\":\"DATA\",\"position\":{\"x\":1,\"y\":2},\"data\":{},"
+                        + "\"parentNodeId\":12345}")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
+                .isEqualTo("NODE-012");
+    }
+
+    @Test
     void rejectsCreatePayloadWithMissingOrInvalidFields() {
         assertThatThrownBy(() -> nodeCommandPayloadParser.parseCreate(
                 envelope("NODE_CREATE_REQUESTED", "{\"nodeType\":\"DATA\",\"position\":{\"x\":1,\"y\":2},\"data\":{}}")))

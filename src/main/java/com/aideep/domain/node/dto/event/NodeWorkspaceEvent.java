@@ -20,8 +20,15 @@ public sealed interface NodeWorkspaceEvent {
             implements NodeWorkspaceEvent {
     }
 
+    record EdgeCreated(String type, UUID workspaceId, String userId, EdgeSnapshot edge) implements NodeWorkspaceEvent {
+    }
+
     record NodeSnapshot(UUID nodeId, String title, String nodeType, NodePosition position, ObjectNode data,
                         Instant createdAt) {
+    }
+
+    /** handle은 WS 계약상 선택 값이므로 없으면 {@code null}로 그대로 보낸다. */
+    record EdgeSnapshot(UUID edgeId, UUID sourceId, UUID targetId, String sourceHandle, String targetHandle) {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
