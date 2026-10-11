@@ -209,10 +209,12 @@ JPA `@Version`을 사용할지 조건부 update query를 사용할지는 노드 
 노드 도메인 오류는 `NodeError implements ErrorCode`에 정의하고 `BusinessException`으로 전달한다.
 독립적인 RuntimeException 하위 클래스는 사용하지 않는다. JSON/envelope/payload 계약 오류는 400,
 없는 workspace/node는 404, 버전 충돌은 409에 대응하며 공통 `GlobalExceptionHandler`의 FAIL 응답을 사용한다.
-Redis DLQ의 기존 문자열 코드는 새 `NODE-001`부터 `NODE-011`까지의 숫자 코드로 변경한다.
+Redis DLQ의 기존 문자열 코드는 새 `NODE-001`부터 `NODE-012`까지의 숫자 코드로 변경한다.
 과거 DLQ 항목은 저장 당시 코드 그대로 남으므로 운영 조회 시 두 코드 체계를 해석해야 한다.
 `NODE-001`~`NODE-009`는 계약·도메인 영구 실패, `NODE-010`은 누락된 stream `data`,
-`NODE-011`은 재시도 가능한 처리 실패에 사용한다.
+`NODE-011`은 재시도 가능한 처리 실패에 사용한다. `NODE-012`는 `NODE_CREATE_REQUESTED`의
+`parentNodeId`가 문자열이 아니거나 UUID가 아닐 때의 영구 실패다. 필드 누락과 명시적 `null`은
+모두 "부모 없음"으로 해석하므로 오류가 아니다.
 
 파싱 실패 시에는 `BusinessException.data`의 `NodeEventErrorContext`에 파싱 가능한 eventId/eventType과
 상세 사유를 보존한다. `NodeEventWorker`는 `NodeError`를 영구 실패로 분류하고, 다른 도메인/인프라 오류는
@@ -330,6 +332,13 @@ Spring과 `aideep-ws`는 같은 Redis에 연결되어야 하며 Spring에는 별
 - 생성 payload: `type=NODE_CREATE`, `workspaceId`, `userId=system:ai`,
   `node={nodeId,title,nodeType,position:{x,y},data,createdAt}`
 - 수정 payload: `type=NODE_UPDATE`, `workspaceId`, `userId=system:ai`, `nodeId`, `patch`
+- 엣지 생성 payload: `type=EDGE_CREATE`, `workspaceId`, `userId=system:ai`,
+  `edge={edgeId,sourceId,targetId,sourceHandle,targetHandle}`. handle은 선택 값이며 없으면 `null`로 보낸다.
+  `aideep-ws`는 `EDGE_CREATE`/`EDGE_UPDATE`/`EDGE_DELETED`(삭제만 과거형)를 이미 지원한다.
+- `parentNodeId`가 있는 `NODE_CREATE_REQUESTED` 하나는 WS 이벤트 **두 개**가 된다. 노드가 먼저 그려질 수 있도록
+  `NODE_CREATE` → `EDGE_CREATE` 순서로 발행하며, 각 이벤트는 자기 `messageId`를 가진 별도 envelope다.
+  둘 다 같은 트랜잭션의 커밋 결과이지만 발행은 각각 best-effort여서 하나가 실패해도 나머지 발행은 멈추지 않는다.
+  `EDGE_CREATE`만 유실되면 캐시 삭제로 무효화된 워크스페이스 조회를 다시 받아야 엣지가 복구된다.
 - 생성 결과는 DB에 저장한 ID와 값을 사용한다. 수정의 `patch`에는 요청한 필드만 포함하며, `data`를 수정했다면
   입력 조각 대신 기존 content와 병합한 전체 객체를 전송한다. 변경하지 않은 필드는 null 없이 생략한다.
 - `system:ai`는 실시간 이벤트의 발신자 표식이며 사용자 계정이나 DB 작성자 기록을 의미하지 않는다.
@@ -355,6 +364,7 @@ Pub/Sub은 영속 큐가 아니므로 DB 커밋 직후 프로세스 종료, Redi
 2. [노드 이벤트 테스트 서버](../../node-event-test-server/README.md)를 실행하고 테스트 화면에서 실제
    `workspaceId`를 넣은 `NODE_CREATE_REQUESTED`를 발행한다. DB 생성과 `workspace_event`의 `NODE_CREATE`,
    프런트엔드 노드 표시를 확인한다. 필요하면 Redis CLI의 `SUBSCRIBE aideep.realtime.v1`로 envelope를 확인한다.
+   `parentNodeId`에 기존 노드 ID를 넣으면 `NODE_CREATE` 바로 뒤에 `EDGE_CREATE`가 오고 화면에 연결선이 보여야 한다.
 3. 생성된 `nodeId`와 현재 `expectedVersion`으로 `NODE_PATCH_REQUESTED`를 발행한다. `NODE_UPDATE`의 `patch`와
    화면 변경을 확인한다. 같은 eventId를 다시 보내도 추가 이벤트가 없어야 한다.
 4. 다른 워크스페이스의 클라이언트에는 이벤트가 전달되지 않는지 확인한다. 에디터의 Yjs 동기화는 이 검증 대상이 아니다.
