@@ -30,6 +30,12 @@ public class AuthUser extends BaseEntity {
         this.password = password;
     }
 
+    /** 가입 시점에 닉네임까지 함께 저장하는 생성자. */
+    public AuthUser(String email, String password, String username, Instant now) {
+        this(email, password, now);
+        this.username = username;
+    }
+
     public void changePassword(String hash, Instant now) {
         password = hash;
         updateTimestamp(now);
