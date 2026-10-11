@@ -19,7 +19,8 @@ public enum NodeError implements ErrorCode {
     NODE_NOT_FOUND(HttpStatus.NOT_FOUND, "NODE-008", "워크스페이스에서 노드를 찾을 수 없습니다."),
     STALE_NODE_VERSION(HttpStatus.CONFLICT, "NODE-009", "노드 버전이 일치하지 않습니다."),
     INVALID_STREAM_ENTRY(HttpStatus.BAD_REQUEST, "NODE-010", "노드 스트림 항목에 data가 없습니다."),
-    PROCESSOR_FAILURE(HttpStatus.INTERNAL_SERVER_ERROR, "NODE-011", "노드 명령 처리에 실패했습니다.");
+    PROCESSOR_FAILURE(HttpStatus.INTERNAL_SERVER_ERROR, "NODE-011", "노드 명령 처리에 실패했습니다."),
+    INVALID_PARENT_NODE_ID(HttpStatus.BAD_REQUEST, "NODE-012", "부모 노드 ID 형식이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String code;

@@ -29,18 +29,41 @@ public class NodeCommandPayloadParser {
         if (title.length() > Node.MAX_TITLE_LENGTH) {
             throw permanent("title must not exceed " + Node.MAX_TITLE_LENGTH + " characters");
         }
-        UUID parentNodeId = payload.has("parentNodeId") ? requiredUuid(payload, "parentNodeId") : null;
+        UUID parentNodeId = optionalParentNodeId(payload);
         String sourceHandle = optionalHandle(payload, "sourceHandle");
         String targetHandle = optionalHandle(payload, "targetHandle");
         return new NodeCreateCommand(title, nodeType, position, data, parentNodeId, sourceHandle, targetHandle);
     }
 
+    /** 필드 누락과 명시적 {@code null}은 모두 부모 없음으로 해석하고, 값이 있을 때만 UUID 형식을 요구한다. */
+    private UUID optionalParentNodeId(JsonNode parent) {
+        JsonNode value = parent.get("parentNodeId");
+        if (isAbsent(value)) {
+            return null;
+        }
+        if (!value.isString()) {
+            throw new BusinessException(NodeError.INVALID_PARENT_NODE_ID, "parentNodeId must be a string");
+        }
+        try {
+            return UUID.fromString(value.asString());
+        } catch (IllegalArgumentException exception) {
+            throw new BusinessException(NodeError.INVALID_PARENT_NODE_ID, "parentNodeId must be a UUID");
+        }
+    }
+
     private String optionalHandle(JsonNode parent, String fieldName) {
-        String handle = optionalText(parent, fieldName);
-        if (handle != null && handle.length() > Edge.MAX_HANDLE_LENGTH) {
+        if (isAbsent(parent.get(fieldName))) {
+            return null;
+        }
+        String handle = requiredText(parent, fieldName);
+        if (handle.length() > Edge.MAX_HANDLE_LENGTH) {
             throw permanent(fieldName + " must not exceed " + Edge.MAX_HANDLE_LENGTH + " characters");
         }
         return handle;
+    }
+
+    private boolean isAbsent(JsonNode value) {
+        return value == null || value.isNull();
     }
 
     public NodePatchCommand parsePatch(NodeEventEnvelope nodeEventEnvelope) {
