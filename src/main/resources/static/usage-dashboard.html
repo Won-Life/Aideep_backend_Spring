@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>회의 사용량 · 비용</title>
+<style>
+  :root { color-scheme: dark }
+  body { margin:0; padding:24px; background:#0f1115; color:#e7e9ee;
+         font:14px/1.5 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif }
+  h1 { font-size:20px; margin:0 0 4px }
+  h2 { font-size:15px; margin:28px 0 10px; color:#aab2c5 }
+  .muted { color:#8b93a7; font-size:12px }
+  .tabs { margin-top:12px; display:flex; gap:8px }
+  .tab { padding:5px 12px; border:1px solid #2a2f3a; border-radius:999px; color:#aab2c5;
+         background:none; cursor:pointer; font:inherit }
+  .tab.active { background:#243049; color:#fff; border-color:#3b82f6 }
+  .cards { display:flex; flex-wrap:wrap; gap:12px; margin-top:20px }
+  .card { flex:1 1 180px; background:#171a21; border:1px solid #232834; border-radius:10px; padding:14px }
+  .card span { display:block; color:#8b93a7; font-size:12px }
+  .card strong { display:block; font-size:22px; margin:4px 0 }
+
+  /* 차트: [y축 라벨][플롯] / [빈칸][x축 라벨] 2x2 그리드 */
+  .chart-box { background:#171a21; border:1px solid #232834; border-radius:10px; padding:12px 14px 8px;
+               margin-top:8px }
+  .chart-grid { display:grid; grid-template-columns:64px 1fr; grid-template-rows:200px auto; column-gap:8px;
+                padding-top:10px }
+  .y-axis { position:relative }
+  .y-tick { position:absolute; right:0; transform:translateY(-50%); color:#8b93a7; font-size:11px;
+            font-variant-numeric:tabular-nums }
+  .plot { position:relative; border-left:1px solid #2a2f3a; border-bottom:1px solid #2a2f3a }
+  .gridline { position:absolute; left:0; right:0; border-top:1px dashed #232834 }
+  .bars { position:absolute; inset:0; display:flex; align-items:flex-end; gap:2px; padding:0 2px }
+  .bar { flex:1 1 0; min-width:3px; background:#3b82f6; border-radius:2px 2px 0 0; cursor:pointer;
+         transition:background .1s }
+  .bar:hover, .bar.active { background:#7aa7ff }
+  .bar.empty { background:#232834 }
+  .x-axis { grid-column:2; display:flex; color:#8b93a7; font-size:11px; padding:4px 2px 0 }
+  .x-axis span { flex:1 1 0; min-width:3px; text-align:center; white-space:nowrap }
+  .axis-title { color:#8b93a7; font-size:11px; margin:0 0 16px }
+
+  #tip { position:absolute; z-index:10; max-width:380px; background:#1b2029; border:1px solid #39404f;
+         border-radius:8px; padding:10px 12px; font-size:12px; pointer-events:none;
+         box-shadow:0 8px 24px rgba(0,0,0,.45) }
+  #tip h3 { margin:0 0 6px; font-size:13px }
+  #tip .sum { color:#9ec1ff; margin-bottom:6px }
+  #tip ul { margin:0; padding-left:16px; color:#cdd3df }
+  #tip li { margin:2px 0 }
+  #tip .more { color:#8b93a7; margin-top:4px }
+
+  table { width:100%; border-collapse:collapse; font-size:13px }
+  th, td { padding:7px 10px; border-bottom:1px solid #232834; text-align:left }
+  th { color:#8b93a7; font-weight:500 }
+  td.num { text-align:right; font-variant-numeric:tabular-nums }
+  .notes { color:#8b93a7; font-size:12px }
+  .tag { font-size:11px; padding:1px 6px; border-radius:999px; background:#243049; color:#9ec1ff }
+  .tag.warn { background:#3a2a16; color:#f5c177 }
+  a { color:#7aa7ff }
+  .error { background:#2a1f12; border:1px solid #5b4420; border-radius:10px; padding:12px 16px; color:#f5c177 }
+</style>
+</head>
+<body>
+<h1>회의 사용량 · 비용</h1>
+<p class="muted" id="meta">불러오는 중…</p>
+<div class="tabs">
+  <button class="tab active" data-hours="24">최근 24시간</button>
+  <button class="tab" data-hours="168">최근 7일</button>
+  <button class="tab" data-hours="720">최근 30일</button>
+</div>
+
+<div id="error" class="error" hidden></div>
+
+<section class="cards">
+  <div class="card"><span>총 비용</span><strong id="totalCost">-</strong><span id="rateNote"></span></div>
+  <div class="card"><span>회의 수</span><strong id="totalMeetings">-</strong><span>기간 내 시작된 회의</span></div>
+  <div class="card"><span>사용 시간</span><strong id="totalHours">-</strong><span>봇 활성 시간</span></div>
+  <div class="card"><span>회의당 평균</span><strong id="avgMinutes">-</strong><span>분</span></div>
+</section>
+
+<h2 id="chartTitle">시간별 비용</h2>
+<div class="chart-box">
+  <p class="axis-title">세로축: 비용(USD) · 가로축: <span id="xAxisTitle">시각</span> · 막대에 커서를 올리면 그 구간의 회의가 보입니다</p>
+  <div class="chart-grid">
+    <div class="y-axis" id="yAxis"></div>
+    <div class="plot" id="plot">
+      <div class="bars" id="bars"></div>
+    </div>
+    <div class="x-axis" id="xAxis"></div>
+  </div>
+</div>
+<div id="tip" hidden></div>
+
+<h2 id="tableTitle">시간별 상세</h2>
+<table>
+  <thead><tr><th>구간</th><th>회의 수</th><th>사용 시간</th><th>Recall</th><th>ElevenLabs</th><th>합계</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<h2>회의별 사용량 <span class="muted" id="meetingCount"></span></h2>
+<table>
+  <thead><tr>
+    <th>시작</th><th>종료</th><th>상태</th><th>회의 링크</th>
+    <th>사용 시간</th><th>Recall</th><th>ElevenLabs</th><th>합계</th>
+  </tr></thead>
+  <tbody id="meetingRows"></tbody>
+</table>
+
+<h2>수치의 근거</h2>
+<ul class="notes">
+  <li>사용 시간은 회의 기록(봇 생성 요청 ~ 종료)으로 계산한다. Recall은 봇이 회의 URL을 여는 시점부터 과금하므로 실제 청구와 조금 차이가 난다.</li>
+  <li><code>fatal</code>로 끝난 회의는 Recall이 과금하지 않으므로 제외한다. 대기실 시간은 포함된다.</li>
+  <li>ElevenLabs 전사는 Recall 봇이 우리 키로 호출하며, 과금 시간은 녹음 시간과 같다고 보고 같은 사용 시간에 단가를 곱한다.</li>
+  <li>단가는 이 파일 아래 <code>RATES</code> 값이다. 공급자가 가격을 바꾸면 이 값만 고치면 된다.</li>
+</ul>
+
+<script>
+  // 시간당 단가(USD). recall.ai/pricing, elevenlabs.io/pricing/api 의 PAYG 기준.
+  const RATES = {
+    recallBot: 0.50,            // Recall 봇 기본 variant
+    elevenLabsScribe: 0.39      // ElevenLabs scribe_v2_realtime (봇이 쓰는 모델)
+  };
+  const USAGE_URL = '/v1/aideep/api/meeting/usage';
+  const HOUR_MS = 3600 * 1000;
+  const TIP_MAX_MEETINGS = 6;
+
+  let hours = 24;
+  let state = { buckets: [], meetings: [], daily: false, bucketMs: HOUR_MS };
+
+  const fmt = (value, digits = 2) =>
+    value.toLocaleString('ko-KR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  const pad = (n) => String(n).padStart(2, '0');
+  const hoursOf = (seconds) => seconds / 3600;
+  const costOf = (seconds) => hoursOf(seconds) * (RATES.recallBot + RATES.elevenLabsScribe);
+
+  function label(iso, daily) {
+    const date = new Date(iso);
+    const head = `${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
+    return daily ? head : `${head} ${pad(date.getHours())}:00`;
+  }
+
+  function stamp(iso) {
+    const date = new Date(iso);
+    return `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  function shorten(url) { return url.length <= 48 ? url : `${url.slice(0, 45)}…`; }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g,
+      (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  }
+
+  async function load() {
+    document.getElementById('error').hidden = true;
+    try {
+      const response = await fetch(`${USAGE_URL}?hours=${hours}`, { headers: { 'Accept': 'application/json' } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      render(body.success ?? body);
+    } catch (error) {
+      const box = document.getElementById('error');
+      box.hidden = false;
+      box.textContent = `사용량을 불러오지 못했습니다: ${error.message}. 내부망에서 접속했는지 확인하세요.`;
+    }
+  }
+
+  function render(data) {
+    const daily = hours > 48;
+    const buckets = daily ? groupByDay(data.buckets) : data.buckets;
+    state = { buckets, meetings: data.meetings ?? [], daily, bucketMs: daily ? HOUR_MS * 24 : HOUR_MS };
+
+    let totalSeconds = 0, totalMeetings = 0;
+    buckets.forEach(bucket => { totalSeconds += bucket.usageSeconds; totalMeetings += bucket.meetingCount; });
+
+    document.getElementById('meta').textContent =
+      `${new Date(data.from).toLocaleString('ko-KR')} ~ ${new Date(data.to).toLocaleString('ko-KR')} · 통화 USD`;
+    document.getElementById('totalCost').textContent = `${fmt(costOf(totalSeconds))} USD`;
+    document.getElementById('rateNote').textContent =
+      `Recall ${RATES.recallBot}/h + ElevenLabs ${RATES.elevenLabsScribe}/h`;
+    document.getElementById('totalMeetings').textContent = totalMeetings;
+    document.getElementById('totalHours').textContent = `${fmt(hoursOf(totalSeconds))}h`;
+    document.getElementById('avgMinutes').textContent =
+      totalMeetings === 0 ? '-' : fmt(totalSeconds / totalMeetings / 60, 1);
+    document.getElementById('chartTitle').textContent = daily ? '일별 비용' : '시간별 비용';
+    document.getElementById('tableTitle').textContent = daily ? '일별 상세' : '시간별 상세';
+    document.getElementById('xAxisTitle').textContent = daily ? '날짜' : '시각';
+
+    renderChart();
+    renderBucketTable();
+    renderMeetings();
+  }
+
+  /** 축 눈금은 사람이 읽기 좋은 단위(1·2·5 x 10^n)로 올림한다. */
+  function niceMax(value) {
+    if (value <= 0) return 1;
+    const exponent = Math.pow(10, Math.floor(Math.log10(value)));
+    const scaled = value / exponent;
+    const step = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 5 ? 5 : 10;
+    return step * exponent;
+  }
+
+  function renderChart() {
+    const costs = state.buckets.map(bucket => costOf(bucket.usageSeconds));
+    const top = niceMax(Math.max(...costs, 0.01));
+    const ticks = 4;
+
+    document.getElementById('yAxis').innerHTML = Array.from({ length: ticks + 1 }, (unused, index) => {
+      const value = top * index / ticks;
+      const bottom = index / ticks * 100;
+      return `<span class="y-tick" style="bottom:${bottom}%">${fmt(value)} USD</span>`;
+    }).join('');
+
+    const gridlines = Array.from({ length: ticks + 1 }, (unused, index) =>
+      `<div class="gridline" style="bottom:${index / ticks * 100}%"></div>`).join('');
+    document.getElementById('plot').innerHTML = gridlines + '<div class="bars" id="bars"></div>';
+
+    document.getElementById('bars').innerHTML = state.buckets.map((bucket, index) => {
+      const height = Math.min(100, costOf(bucket.usageSeconds) / top * 100);
+      const empty = bucket.usageSeconds === 0 ? ' empty' : '';
+      return `<div class="bar${empty}" data-index="${index}" style="height:${Math.max(height, 1)}%"></div>`;
+    }).join('');
+
+    // 막대마다 라벨 칸을 두되 글자는 일부만 넣어, 라벨이 자기 막대 아래에 오게 한다.
+    const shownIndexes = labelIndexes(state.buckets.length);
+    document.getElementById('xAxis').innerHTML = state.buckets.map((bucket, index) =>
+      `<span>${shownIndexes.has(index) ? escapeHtml(label(bucket.hour, state.daily)) : ''}</span>`).join('');
+  }
+
+  /** 막대가 많으면 라벨이 겹치므로 일부 칸에만 글자를 넣는다. */
+  function labelIndexes(total) {
+    if (total === 0) return new Set();
+    const count = Math.min(total <= 10 ? total : 6, total);
+    const step = (total - 1) / Math.max(1, count - 1);
+    return new Set(Array.from({ length: count }, (unused, index) => Math.round(index * step)));
+  }
+
+  function renderBucketTable() {
+    document.getElementById('rows').innerHTML = state.buckets.slice().reverse().map(bucket => {
+      const recall = hoursOf(bucket.usageSeconds) * RATES.recallBot;
+      const eleven = hoursOf(bucket.usageSeconds) * RATES.elevenLabsScribe;
+      return `<tr><td>${label(bucket.hour, state.daily)}</td>`
+        + `<td class="num">${bucket.meetingCount}</td>`
+        + `<td class="num">${fmt(hoursOf(bucket.usageSeconds))}h</td>`
+        + `<td class="num">${fmt(recall)}</td>`
+        + `<td class="num">${fmt(eleven)}</td>`
+        + `<td class="num">${fmt(recall + eleven)} USD</td></tr>`;
+    }).join('');
+  }
+
+  function renderMeetings() {
+    const meetings = state.meetings;
+    document.getElementById('meetingCount').textContent = `${meetings.length}건`;
+    if (meetings.length === 0) {
+      document.getElementById('meetingRows').innerHTML =
+        '<tr><td colspan="8" class="muted">기간 내 회의가 없습니다.</td></tr>';
+      return;
+    }
+    document.getElementById('meetingRows').innerHTML = meetings.map(meeting => {
+      const used = meeting.usageSeconds / 3600;
+      const recall = used * RATES.recallBot;
+      const eleven = used * RATES.elevenLabsScribe;
+      const ongoing = meeting.endedAt === null;
+      const note = meeting.billable ? (ongoing ? ' <span class="tag">진행 중</span>' : '')
+        : ' <span class="tag warn">미과금</span>';
+      return `<tr><td>${stamp(meeting.startedAt)}</td>`
+        + `<td>${ongoing ? '-' : stamp(meeting.endedAt)}</td>`
+        + `<td>${escapeHtml(meeting.status)}${note}</td>`
+        + `<td><a href="${escapeHtml(meeting.meetingUrl)}" target="_blank" rel="noreferrer noopener">`
+        + `${escapeHtml(shorten(meeting.meetingUrl))}</a></td>`
+        + `<td class="num">${fmt(used)}h</td>`
+        + `<td class="num">${fmt(recall)}</td>`
+        + `<td class="num">${fmt(eleven)}</td>`
+        + `<td class="num">${fmt(recall + eleven)} USD</td></tr>`;
+    }).join('');
+  }
+
+  /** 그 구간과 겹친 회의. 진행 중인 회의는 지금까지 이어지는 것으로 본다. */
+  function meetingsIn(bucket) {
+    const start = new Date(bucket.hour).getTime();
+    const end = start + state.bucketMs;
+    const now = Date.now();
+    return state.meetings.filter(meeting => {
+      const meetingStart = new Date(meeting.startedAt).getTime();
+      const meetingEnd = meeting.endedAt === null ? now : new Date(meeting.endedAt).getTime();
+      return meetingStart < end && meetingEnd > start;
+    });
+  }
+
+  function showTip(bar) {
+    const bucket = state.buckets[Number(bar.dataset.index)];
+    const meetings = meetingsIn(bucket);
+    const shown = meetings.slice(0, TIP_MAX_MEETINGS).map(meeting => {
+      const used = meeting.usageSeconds / 3600;
+      const range = `${stamp(meeting.startedAt)} ~ ${meeting.endedAt === null ? '진행 중' : stamp(meeting.endedAt)}`;
+      const cost = used * (RATES.recallBot + RATES.elevenLabsScribe);
+      const mark = meeting.billable ? '' : ' · 미과금';
+      return `<li>${escapeHtml(range)} · ${fmt(used)}h · ${fmt(cost)} USD${mark}<br>`
+        + `<span class="muted">${escapeHtml(shorten(meeting.meetingUrl))}</span></li>`;
+    }).join('');
+
+    const tip = document.getElementById('tip');
+    tip.innerHTML = `<h3>${escapeHtml(label(bucket.hour, state.daily))}</h3>`
+      + `<div class="sum">${fmt(costOf(bucket.usageSeconds))} USD · ${fmt(hoursOf(bucket.usageSeconds))}h`
+      + ` · 이 구간 회의 ${meetings.length}건</div>`
+      + (meetings.length === 0 ? '<div class="muted">진행된 회의가 없습니다.</div>' : `<ul>${shown}</ul>`)
+      + (meetings.length > TIP_MAX_MEETINGS
+        ? `<div class="more">… 외 ${meetings.length - TIP_MAX_MEETINGS}건</div>` : '');
+    tip.hidden = false;
+
+    const box = bar.getBoundingClientRect();
+    const width = tip.offsetWidth;
+    const left = Math.min(Math.max(8, box.left + window.scrollX - width / 2 + box.width / 2),
+      window.scrollX + document.documentElement.clientWidth - width - 8);
+    const above = box.top + window.scrollY - tip.offsetHeight - 10;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${above < window.scrollY ? box.bottom + window.scrollY + 10 : above}px`;
+  }
+
+  function hideTip() {
+    document.getElementById('tip').hidden = true;
+    document.querySelectorAll('.bar.active').forEach(bar => bar.classList.remove('active'));
+  }
+
+  document.getElementById('plot').addEventListener('mouseover', (event) => {
+    const bar = event.target.closest('.bar');
+    if (!bar) return;
+    hideTip();
+    bar.classList.add('active');
+    showTip(bar);
+  });
+  document.getElementById('plot').addEventListener('mouseleave', hideTip);
+
+  function groupByDay(buckets) {
+    const byDay = new Map();
+    buckets.forEach(bucket => {
+      const date = new Date(bucket.hour);
+      date.setHours(0, 0, 0, 0);
+      const key = date.toISOString();
+      const day = byDay.get(key) ?? { hour: key, usageSeconds: 0, meetingCount: 0 };
+      day.usageSeconds += bucket.usageSeconds;
+      day.meetingCount += bucket.meetingCount;
+      byDay.set(key, day);
+    });
+    return [...byDay.values()];
+  }
+
+  document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(other => other.classList.remove('active'));
+    tab.classList.add('active');
+    hours = Number(tab.dataset.hours);
+    hideTip();
+    load();
+  }));
+
+  load();
+</script>
+</body>
+</html>
