@@ -121,7 +121,11 @@ public class SecurityConfig {
                                         "/v1/aideep/api/auth/password/reset/request",
                                         "/v1/aideep/api/auth/password/reset/confirm").permitAll()
                                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/v1/aideep/api/auth/google",
-                                        "/v1/aideep/api/auth/google/callback").permitAll().anyRequest().authenticated())
+                                        "/v1/aideep/api/auth/google/callback").permitAll()
+                                // 내부망에서만 여는 사용량 대시보드와 그 집계. 외부에 노출되지 않도록 네트워크에서 막는다.
+                                .requestMatchers(org.springframework.http.HttpMethod.GET, "/usage-dashboard.html",
+                                        "/v1/aideep/api/meeting/usage").permitAll()
+                                .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(
                                 (request, response, error) -> writeError(response, objectMapper, 401))
                         .accessDeniedHandler((request, response, error) -> writeError(response, objectMapper, 403)))
