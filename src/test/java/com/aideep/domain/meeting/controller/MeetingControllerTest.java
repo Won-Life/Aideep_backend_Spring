@@ -6,6 +6,7 @@ import com.aideep.domain.meeting.dto.request.InviteBotRequest;
 import com.aideep.domain.meeting.dto.response.ActiveMeetingResponse;
 import com.aideep.domain.meeting.dto.response.InviteBotResponse;
 import com.aideep.domain.meeting.service.MeetingQueryService;
+import com.aideep.domain.meeting.service.MeetingUsageService;
 import com.aideep.domain.meeting.service.MeetingService;
 import com.aideep.domain.workspace.entity.WorkspacePermission;
 import com.aideep.domain.workspace.service.WorkspacePermissionService;
@@ -53,6 +54,7 @@ class MeetingControllerTest {
 
     private MeetingService meetingService;
     private MeetingQueryService meetingQueryService;
+    private MeetingUsageService meetingUsageService;
     private WorkspacePermissionService workspacePermissionService;
     private UserDetail userDetail;
     private MockMvc mockMvc;
@@ -61,11 +63,13 @@ class MeetingControllerTest {
     void setUp() {
         meetingService = mock(MeetingService.class);
         meetingQueryService = mock(MeetingQueryService.class);
+        meetingUsageService = mock(MeetingUsageService.class);
         workspacePermissionService = mock(WorkspacePermissionService.class);
         AuthUser authUser = new AuthUser("user@example.com", "password", Instant.EPOCH);
         userDetail = UserDetail.from(authUser, false);
         mockMvc = MockMvcBuilders.standaloneSetup(
-                        new MeetingController(meetingService, meetingQueryService, workspacePermissionService))
+                        new MeetingController(meetingService, meetingQueryService, meetingUsageService,
+                                workspacePermissionService))
                 .setCustomArgumentResolvers(authenticationPrincipalResolver())
                 .setControllerAdvice(new GlobalExceptionHandler(), new ResponseWrappingAdvice())
                 .build();
