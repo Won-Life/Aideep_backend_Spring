@@ -22,6 +22,7 @@ public record MeetingUsageResponse(Instant from, Instant to, List<HourBucket> bu
     /**
      * 회의 한 건의 과금 시간.
      *
+     * @param botId        Recall 봇 식별자. 봇 생성 응답을 받지 못했으면 null이고, 그런 행은 상태 웹훅이 영원히 오지 않는다.
      * @param startedAt    과금 시작으로 쓰는 봇 생성 요청 시각.
      * @param endedAt      종료 시각. 진행 중이면 null이다.
      * @param usageSeconds 조회 기간과 겹친 과금 초. 기간 밖으로 삐져나간 부분은 빼므로 시간별 합계와 어긋나지 않는다.
@@ -30,6 +31,7 @@ public record MeetingUsageResponse(Instant from, Instant to, List<HourBucket> bu
     public record MeetingUsage(
             UUID meetingId,
             UUID workspaceId,
+            UUID botId,
             String meetingUrl,
             String status,
             Instant startedAt,

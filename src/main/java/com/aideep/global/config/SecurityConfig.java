@@ -122,9 +122,13 @@ public class SecurityConfig {
                                         "/v1/aideep/api/auth/password/reset/confirm").permitAll()
                                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/v1/aideep/api/auth/google",
                                         "/v1/aideep/api/auth/google/callback").permitAll()
-                                // 내부망에서만 여는 사용량 대시보드와 그 집계. 외부에 노출되지 않도록 네트워크에서 막는다.
+                                // 내부망에서만 여는 사용량 대시보드와 그 집계·정리 동작. 외부에 노출되지 않도록 네트워크에서 막는다.
                                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/usage-dashboard.html",
                                         "/v1/aideep/api/meeting/usage").permitAll()
+                                .requestMatchers(org.springframework.http.HttpMethod.POST,
+                                        "/v1/aideep/api/meeting/*/leave",
+                                        "/v1/aideep/api/meeting/*/close",
+                                        "/v1/aideep/api/meeting/*/sync").permitAll()
                                 .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(
                                 (request, response, error) -> writeError(response, objectMapper, 401))

@@ -33,7 +33,31 @@ public enum MeetingError implements ErrorCode {
     BOT_ALREADY_INVITED(
             HttpStatus.CONFLICT,
             "MEETING-007",
-            "이미 봇이 참여 중인 회의입니다.");
+            "이미 봇이 참여 중인 회의입니다."),
+    MEETING_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "MEETING-008",
+            "회의를 찾을 수 없습니다."),
+    MEETING_ALREADY_ENDED(
+            HttpStatus.CONFLICT,
+            "MEETING-009",
+            "이미 종료된 회의입니다."),
+    BOT_NOT_LINKED(
+            HttpStatus.CONFLICT,
+            "MEETING-010",
+            "봇이 연결되지 않은 회의입니다."),
+    BOT_STILL_LINKED(
+            HttpStatus.CONFLICT,
+            "MEETING-011",
+            "봇이 연결된 회의는 기록만 종료할 수 없습니다."),
+    BOT_ALREADY_LEFT(
+            HttpStatus.CONFLICT,
+            "MEETING-012",
+            "이미 회의에서 나간 봇입니다."),
+    BOT_NOT_FOUND(
+            HttpStatus.NOT_FOUND,
+            "MEETING-013",
+            "Recall에서 봇을 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String code;

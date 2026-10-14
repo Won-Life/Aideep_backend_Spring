@@ -33,4 +33,22 @@ public interface MeetingRepository extends JpaRepository<Meeting, UUID> {
             order by m.createdAt
             """)
     List<Meeting> findOverlapping(@Param("from") Instant from, @Param("to") Instant to);
+
+    Optional<Meeting> findByIdAndDeletedAtIsNull(UUID meetingId);
+
+    /**
+     * 봇이 붙어 있는데 {@code staleBefore} 이후로 아무 이벤트도 받지 못한 활성 회의. 웹훅 유실을 Recall 조회로 메우는 대상이다.
+     * <p>
+     * 이벤트를 한 번도 못 받은 행은 {@code lastEventAt}이 비어 있으므로 생성 시각으로 판단한다.
+     */
+    @Query("""
+            select m from Meeting m
+            where m.deletedAt is null
+              and m.botId is not null
+              and m.status in :statuses
+              and coalesce(m.lastEventAt, m.createdAt) < :staleBefore
+            order by m.createdAt
+            """)
+    List<Meeting> findStalled(@Param("statuses") Collection<MeetingStatus> statuses,
+                              @Param("staleBefore") Instant staleBefore);
 }

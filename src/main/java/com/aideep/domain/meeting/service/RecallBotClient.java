@@ -5,6 +5,7 @@ import com.aideep.domain.meeting.dto.request.InviteBotRequest;
 import com.aideep.domain.meeting.dto.response.InviteBotResponse;
 import com.aideep.domain.meeting.exception.MeetingError;
 import com.aideep.global.exception.BusinessException;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.extern.slf4j.Slf4j;
@@ -18,8 +19,11 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -75,6 +79,82 @@ public class RecallBotClient {
             throw new BusinessException(MeetingError.RECALL_RESPONSE_INVALID);
         }
         return new InviteBotResponse(recallBotResponse.id());
+    }
+
+    /**
+     * 봇을 회의에서 내보낸다. 되돌릴 수 없으며, 성공하면 Recall이 종료 상태 웹훅을 보내 회의 행이 닫힌다.
+     * <p>
+     * 이미 통화에 없는 봇에는 Recall이 400을 준다. 그 경우 더 할 일이 없으므로 초대 거절과 같은 도메인 오류로 변환한다.
+     */
+    public void leaveCall(UUID botId) {
+        requireConfiguration();
+        try {
+            restClient.post()
+                    .uri(recallProperties.apiUrl() + botId + "/leave_call/")
+                    .header("Authorization", recallProperties.apiKey())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is4xxClientError()) {
+                // leave_call의 4xx는 사실상 "그 봇은 이미 통화에 없다"는 뜻이다. 재시도해도 달라지지 않는다.
+                log.info("봇이 이미 회의에 없습니다. botId={} status={}", botId, exception.getStatusCode());
+                throw new BusinessException(MeetingError.BOT_ALREADY_LEFT,
+                        "Recall rejected leave_call for bot " + botId);
+            }
+            throw new BusinessException(MeetingError.RECALL_UNAVAILABLE);
+        } catch (ResourceAccessException exception) {
+            throw new BusinessException(MeetingError.RECALL_UNAVAILABLE);
+        }
+    }
+
+    /**
+     * 봇의 현재 상태를 Recall에서 직접 읽어 마지막 상태 변화를 돌려준다.
+     * <p>
+     * 웹훅은 한 번 유실되면 재전송되지 않으므로, 상태를 당겨올 경로가 따로 필요하다. 상태 변화 기록이 비어 있으면 아직 아무 일도 없었다는 뜻이라 비워서 돌려준다.
+     */
+    public Optional<RecallBotStatus> fetchStatus(UUID botId) {
+        requireConfiguration();
+        RecallBotDetail recallBotDetail;
+        try {
+            recallBotDetail = restClient.get()
+                    .uri(recallProperties.apiUrl() + botId + "/")
+                    .header("Authorization", recallProperties.apiKey())
+                    .accept(MediaType.APPLICATION_JSON)
+                    .retrieve()
+                    .body(RecallBotDetail.class);
+        } catch (RestClientResponseException exception) {
+            if (exception.getStatusCode().is4xxClientError()) {
+                log.info("Recall에 없는 봇입니다. botId={} status={}", botId, exception.getStatusCode());
+                throw new BusinessException(MeetingError.BOT_NOT_FOUND, "Recall has no bot " + botId);
+            }
+            throw new BusinessException(MeetingError.RECALL_UNAVAILABLE);
+        } catch (ResourceAccessException exception) {
+            throw new BusinessException(MeetingError.RECALL_UNAVAILABLE);
+        }
+        if (recallBotDetail == null || recallBotDetail.statusChanges() == null
+                || recallBotDetail.statusChanges().isEmpty()) {
+            return Optional.empty();
+        }
+        // Recall은 상태 변화를 시간순으로 돌려주지만, 마지막 상태가 필요하므로 순서에 기대지 않고 가장 늦은 것을 고른다.
+        return recallBotDetail.statusChanges().stream()
+                .filter(change -> change.code() != null && change.createdAt() != null)
+                .max(Comparator.comparing(RecallStatusChange::createdAt))
+                .map(change -> new RecallBotStatus(change.code(), change.subCode(), change.createdAt()));
+    }
+
+    /** Recall이 기록한 봇의 마지막 상태. */
+    public record RecallBotStatus(String code, String subCode, Instant occurredAt) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record RecallBotDetail(@JsonProperty("status_changes") List<RecallStatusChange> statusChanges) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record RecallStatusChange(String code,
+                                      @JsonProperty("sub_code") String subCode,
+                                      @JsonProperty("created_at") Instant createdAt) {
     }
 
     private RecallCreateBotRequest createRequest(InviteBotRequest inviteBotRequest, UUID meetingId) {

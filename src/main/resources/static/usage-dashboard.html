@@ -55,6 +55,11 @@
   td.num { text-align:right; font-variant-numeric:tabular-nums }
   .notes { color:#8b93a7; font-size:12px }
   .tag { font-size:11px; padding:1px 6px; border-radius:999px; background:#243049; color:#9ec1ff }
+  .act { font:inherit; font-size:12px; padding:3px 10px; border-radius:6px; cursor:pointer;
+         border:1px solid #5b2a2a; background:#2a1717; color:#ff9b9b }
+  .act:hover:not(:disabled) { background:#3a1d1d }
+  .act.soft { border-color:#39404f; background:#1b2029; color:#aab2c5 }
+  .act:disabled { opacity:.45; cursor:default }
   .tag.warn { background:#3a2a16; color:#f5c177 }
   a { color:#7aa7ff }
   .error { background:#2a1f12; border:1px solid #5b4420; border-radius:10px; padding:12px 16px; color:#f5c177 }
@@ -101,7 +106,7 @@
 <table>
   <thead><tr>
     <th>시작</th><th>종료</th><th>상태</th><th>회의 링크</th>
-    <th>사용 시간</th><th>Recall</th><th>ElevenLabs</th><th>합계</th>
+    <th>사용 시간</th><th>Recall</th><th>ElevenLabs</th><th>합계</th><th>정리</th>
   </tr></thead>
   <tbody id="meetingRows"></tbody>
 </table>
@@ -121,6 +126,9 @@
     elevenLabsScribe: 0.39      // ElevenLabs scribe_v2_realtime (봇이 쓰는 모델)
   };
   const USAGE_URL = '/v1/aideep/api/meeting/usage';
+  // 봇이 아직 회의에 붙어 있을 수 있는 상태. 서버의 MeetingStatus.active()와 같은 집합이다.
+  const ACTIVE_STATUSES = ['REQUESTED', 'JOINING', 'WAITING_ROOM', 'IN_CALL_NOT_RECORDING', 'RECORDING'];
+  const ADMIN_URL = '/v1/aideep/api/meeting';
   const HOUR_MS = 3600 * 1000;
   const TIP_MAX_MEETINGS = 6;
 
@@ -253,7 +261,7 @@
     document.getElementById('meetingCount').textContent = `${meetings.length}건`;
     if (meetings.length === 0) {
       document.getElementById('meetingRows').innerHTML =
-        '<tr><td colspan="8" class="muted">기간 내 회의가 없습니다.</td></tr>';
+        '<tr><td colspan="9" class="muted">기간 내 회의가 없습니다.</td></tr>';
       return;
     }
     document.getElementById('meetingRows').innerHTML = meetings.map(meeting => {
@@ -271,9 +279,60 @@
         + `<td class="num">${fmt(used)}h</td>`
         + `<td class="num">${fmt(recall)}</td>`
         + `<td class="num">${fmt(eleven)}</td>`
-        + `<td class="num">${fmt(recall + eleven)} USD</td></tr>`;
+        + `<td class="num">${fmt(recall + eleven)} USD</td>`
+        + `<td>${actionButton(meeting)}</td></tr>`;
     }).join('');
   }
+
+  /** 아직 끝나지 않은 회의만 정리할 수 있다. 봇이 붙어 있으면 Recall에서 내보내고, 없으면 기록만 닫는다. */
+  function actionButton(meeting) {
+    if (!ACTIVE_STATUSES.includes(meeting.status)) {
+      return '<span class="muted">-</span>';
+    }
+    if (meeting.botId) {
+      const id = escapeHtml(meeting.meetingId);
+      return `<button class="act soft" data-action="sync" data-id="${id}">상태 확인</button>`
+        + ` <button class="act" data-action="leave" data-id="${id}">봇 내보내기</button>`;
+    }
+    return `<button class="act soft" data-action="close" data-id="${escapeHtml(meeting.meetingId)}">기록만 종료</button>`;
+  }
+
+  const ACTION_PROMPTS = {
+    leave: '이 회의에서 봇을 내보냅니다. 되돌릴 수 없습니다. 계속할까요?',
+    close: '봇이 없는 회의 기록을 종료합니다. 계속할까요?',
+    sync: null,  // Recall에서 읽어오기만 하므로 확인을 묻지 않는다.
+  };
+
+  async function runAction(button) {
+    const action = button.dataset.action;
+    const message = ACTION_PROMPTS[action];
+    if (message && !window.confirm(message)) return;
+
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = '처리 중…';
+    try {
+      const response = await fetch(`${ADMIN_URL}/${button.dataset.id}/${action}`,
+        { method: 'POST', headers: { 'Accept': 'application/json' } });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.reason ?? `HTTP ${response.status}`);
+      }
+      document.getElementById('error').hidden = true;
+      await load();
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = original;
+      const box = document.getElementById('error');
+      box.hidden = false;
+      box.textContent = `정리에 실패했습니다: ${error.message}`;
+    }
+  }
+
+  document.getElementById('meetingRows').addEventListener('click', (event) => {
+    const button = event.target.closest('.act');
+    if (button) runAction(button);
+  });
 
   /** 그 구간과 겹친 회의. 진행 중인 회의는 지금까지 이어지는 것으로 본다. */
   function meetingsIn(bucket) {

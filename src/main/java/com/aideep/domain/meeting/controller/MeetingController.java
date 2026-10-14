@@ -5,6 +5,7 @@ import com.aideep.domain.meeting.dto.request.InviteBotRequest;
 import com.aideep.domain.meeting.dto.response.ActiveMeetingResponse;
 import com.aideep.domain.meeting.dto.response.InviteBotResponse;
 import com.aideep.domain.meeting.dto.response.MeetingUsageResponse;
+import com.aideep.domain.meeting.service.MeetingAdminService;
 import com.aideep.domain.meeting.service.MeetingQueryService;
 import com.aideep.domain.meeting.service.MeetingService;
 import com.aideep.domain.meeting.service.MeetingUsageService;
@@ -28,14 +29,16 @@ public class MeetingController {
     private final MeetingService meetingService;
     private final MeetingQueryService meetingQueryService;
     private final MeetingUsageService meetingUsageService;
+    private final MeetingAdminService meetingAdminService;
     private final WorkspacePermissionService workspacePermissionService;
 
     public MeetingController(MeetingService meetingService, MeetingQueryService meetingQueryService,
-                             MeetingUsageService meetingUsageService,
+                             MeetingUsageService meetingUsageService, MeetingAdminService meetingAdminService,
                              WorkspacePermissionService workspacePermissionService) {
         this.meetingService = meetingService;
         this.meetingQueryService = meetingQueryService;
         this.meetingUsageService = meetingUsageService;
+        this.meetingAdminService = meetingAdminService;
         this.workspacePermissionService = workspacePermissionService;
     }
 
@@ -66,5 +69,32 @@ public class MeetingController {
     @Operation(summary = "시간별 회의 봇 사용량 집계(내부망 대시보드용)")
     public MeetingUsageResponse findHourlyUsage(@RequestParam(defaultValue = "24") int hours) {
         return meetingUsageService.findHourlyUsage(hours);
+    }
+
+    /**
+     * 사용량 대시보드에서 잘못 남은 봇을 정리하는 경로다. 사용량 조회와 같은 이유로 사용자 권한 검사가 없으므로 내부망에서만 열려야 한다.
+     */
+    @PostMapping("/{meetingId}/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "회의에서 봇 강제 내보내기(내부망 대시보드용)",
+            description = "Recall에만 지시하고 회의 상태는 바꾸지 않는다. 상태는 Recall이 보내는 종료 웹훅이 반영한다.")
+    public void forceLeave(@PathVariable UUID meetingId) {
+        meetingAdminService.forceLeave(meetingId);
+    }
+
+    @PostMapping("/{meetingId}/sync")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Recall에서 회의 상태 다시 읽기(내부망 대시보드용)",
+            description = "웹훅을 놓친 회의를 Recall의 마지막 봇 상태로 맞춘다.")
+    public void syncStatus(@PathVariable UUID meetingId) {
+        meetingAdminService.syncStatus(meetingId);
+    }
+
+    @PostMapping("/{meetingId}/close")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "봇이 없는 회의 기록만 종료(내부망 대시보드용)",
+            description = "botId가 없어 상태 웹훅이 영원히 오지 않는 행을 닫는다. 봇이 연결된 회의에는 쓸 수 없다.")
+    public void closeRecord(@PathVariable UUID meetingId) {
+        meetingAdminService.closeRecord(meetingId);
     }
 }

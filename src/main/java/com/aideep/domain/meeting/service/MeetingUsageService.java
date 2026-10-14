@@ -62,8 +62,8 @@ public class MeetingUsageService {
             }
             // 과금되지 않는 회의도 목록에는 남긴다. 사용 초가 0이라 합계는 달라지지 않는다.
             meetings.add(new MeetingUsageResponse.MeetingUsage(meeting.getId(), meeting.getWorkspaceId(),
-                    meeting.getMeetingUrl(), meeting.getStatus().name(), start, meeting.getEndedAt(), seconds,
-                    billable));
+                    meeting.getBotId(), meeting.getMeetingUrl(), meeting.getStatus().name(), start,
+                    meeting.getEndedAt(), seconds, billable));
         }
         meetings.sort(Comparator.comparing(MeetingUsageResponse.MeetingUsage::startedAt,
                 Comparator.nullsLast(Comparator.reverseOrder())));
