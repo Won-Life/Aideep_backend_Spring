@@ -104,9 +104,12 @@ public class OAuthService {
     public TokensResponse complete(OAuthSignupRequest body) {
         SignupTicket ticket = redisAuthStore.consume("oauth:signup_ticket:" + body.ticket(), SignupTicket.class);
         if (ticket == null) throw new BusinessException(AuthError.SIGNUP_TICKET_INVALID);
+
         AuthUser user;
+        String name = RandomNickname.generate();
+        if (body.username() != null) name = body.username();
         try {
-            user = authDatabase.createOAuthUser(ticket, body.username(),
+            user = authDatabase.createOAuthUser(ticket, name,
                     new TermConsent(body.terms(), body.privacy(), body.marketing()));
         } catch (DataIntegrityViolationException e) {
             throw new BusinessException(AuthError.OAUTH_SIGNUP_CONFLICT);
@@ -146,7 +149,9 @@ public class OAuthService {
             return authUserRepository.saveAndFlush(new AuthUser(email, password, clock.instant()));
         }
 
-        /** 회원가입 경로. 사용자와 약관 동의를 한 트랜잭션에서 저장해 둘 중 하나만 남는 상태를 막는다. */
+        /**
+         * 회원가입 경로. 사용자와 약관 동의를 한 트랜잭션에서 저장해 둘 중 하나만 남는 상태를 막는다.
+         */
         @Transactional
         public AuthUser createUser(String email, String password, String username, TermConsent termConsent) {
             AuthUser user = authUserRepository.saveAndFlush(
