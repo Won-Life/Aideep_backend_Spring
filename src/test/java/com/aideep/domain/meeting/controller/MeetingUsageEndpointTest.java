@@ -25,12 +25,13 @@ class MeetingUsageEndpointTest {
 
     private static final UUID MEETING_ID = UUID.fromString("66666666-6666-4666-8666-666666666666");
     private static final UUID WORKSPACE_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
+    private static final UUID BOT_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
 
     private final MeetingUsageService meetingUsageService = mock(MeetingUsageService.class);
 
     private MockMvc mockMvc() {
         return MockMvcBuilders.standaloneSetup(
-                        new MeetingController(null, null, meetingUsageService, null))
+                        new MeetingController(null, null, meetingUsageService, null, null))
                 .setControllerAdvice(new com.aideep.global.response.ResponseWrappingAdvice())
                 .build();
     }
@@ -41,7 +42,7 @@ class MeetingUsageEndpointTest {
                 Instant.parse("2026-10-14T04:00:00Z"), Instant.parse("2026-10-14T06:00:00Z"),
                 List.of(new MeetingUsageResponse.HourBucket(Instant.parse("2026-10-14T04:00:00Z"), 1800, 2),
                         new MeetingUsageResponse.HourBucket(Instant.parse("2026-10-14T05:00:00Z"), 0, 0)),
-                List.of(new MeetingUsageResponse.MeetingUsage(MEETING_ID, WORKSPACE_ID,
+                List.of(new MeetingUsageResponse.MeetingUsage(MEETING_ID, WORKSPACE_ID, BOT_ID,
                         "https://meet.google.com/abc-defg-hij", "DONE", Instant.parse("2026-10-14T04:00:00Z"),
                         Instant.parse("2026-10-14T04:30:00Z"), 1800, true))));
 
@@ -55,6 +56,7 @@ class MeetingUsageEndpointTest {
                 .andExpect(jsonPath("$.success.meetings[0].usageSeconds").value(1800))
                 .andExpect(jsonPath("$.success.meetings[0].status").value("DONE"))
                 .andExpect(jsonPath("$.success.meetings[0].billable").value(true))
+                .andExpect(jsonPath("$.success.meetings[0].botId").value(BOT_ID.toString()))
                 .andExpect(jsonPath("$.success.meetings[0].meetingUrl")
                         .value("https://meet.google.com/abc-defg-hij"));
     }

@@ -19,6 +19,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -34,6 +35,7 @@ class RecallBotClientTest {
 
     private final AtomicReference<String> authorization = new AtomicReference<>();
     private final AtomicReference<String> requestBody = new AtomicReference<>();
+    private final AtomicReference<String> requestPath = new AtomicReference<>();
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     private HttpServer httpServer;
@@ -146,6 +148,71 @@ class RecallBotClientTest {
         return client(apiKey, "");
     }
 
+    @Test
+    void removesTheBotFromTheCallThroughTheLeaveCallEndpoint() {
+        client("recall-key").leaveCall(BOT_ID);
+
+        assertThat(requestPath.get()).isEqualTo("/api/v1/bot/" + BOT_ID + "/leave_call/");
+        assertThat(authorization.get()).isEqualTo("recall-key");
+    }
+
+    /** 이미 통화에 없는 봇에 Recall은 400을 준다. 재시도해도 소용없으므로 도메인 오류로 바꾼다. */
+    @Test
+    void mapsARejectedLeaveCallToADomainError() {
+        responseStatus = 400;
+        responseBody = "{\"detail\":\"bot is not in a call\"}";
+
+        assertThatThrownBy(() -> client("recall-key").leaveCall(BOT_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(MeetingError.BOT_ALREADY_LEFT);
+    }
+
+    @Test
+    void readsTheLatestStatusChangeRegardlessOfTheOrderRecallReturns() {
+        responseBody = """
+                {"id":"%s","status_changes":[
+                  {"code":"joining_call","sub_code":null,"created_at":"2026-10-14T09:00:52Z"},
+                  {"code":"media_expired","sub_code":null,"created_at":"2026-10-14T09:16:53Z"},
+                  {"code":"call_ended","sub_code":"call_ended_by_host","created_at":"2026-10-14T09:04:00Z"}
+                ]}""".formatted(BOT_ID);
+
+        RecallBotClient.RecallBotStatus botStatus = client("recall-key").fetchStatus(BOT_ID).orElseThrow();
+
+        assertThat(requestPath.get()).isEqualTo("/api/v1/bot/" + BOT_ID + "/");
+        assertThat(botStatus.code()).isEqualTo("media_expired");
+        assertThat(botStatus.occurredAt()).isEqualTo(Instant.parse("2026-10-14T09:16:53Z"));
+    }
+
+    @Test
+    void returnsNothingWhenRecallHasNoStatusChangeYet() {
+        responseBody = "{\"id\":\"%s\",\"status_changes\":[]}".formatted(BOT_ID);
+
+        assertThat(client("recall-key").fetchStatus(BOT_ID)).isEmpty();
+    }
+
+    @Test
+    void mapsAMissingBotToADomainError() {
+        responseStatus = 404;
+        responseBody = "{\"detail\":\"Not found.\"}";
+
+        assertThatThrownBy(() -> client("recall-key").fetchStatus(BOT_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(MeetingError.BOT_NOT_FOUND);
+    }
+
+    @Test
+    void mapsALeaveCallServerErrorToRecallUnavailable() {
+        responseStatus = 502;
+        responseBody = "{}";
+
+        assertThatThrownBy(() -> client("recall-key").leaveCall(BOT_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(MeetingError.RECALL_UNAVAILABLE);
+    }
+
     private RecallBotClient client(String apiKey, String transcriptWebhookUrl) {
         String apiUrl = "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/api/v1/bot/";
         RecallProperties recallProperties = new RecallProperties(
@@ -160,6 +227,7 @@ class RecallBotClientTest {
 
     private void handleRequest(HttpExchange httpExchange) throws IOException {
         authorization.set(httpExchange.getRequestHeaders().getFirst("Authorization"));
+        requestPath.set(httpExchange.getRequestURI().getPath());
         requestBody.set(new String(httpExchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
         httpExchange.getResponseHeaders().set("Content-Type", "application/json");
