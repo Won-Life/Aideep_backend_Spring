@@ -116,6 +116,35 @@ class RecallBotClientTest {
     }
 
     @Test
+    void capsTheBotWithAutomaticLeaveTimeouts() throws Exception {
+        client("recall-key").invite(request(), MEETING_ID);
+
+        JsonNode automaticLeave = jsonMapper.readTree(requestBody.get()).path("automatic_leave");
+        assertThat(automaticLeave.path("in_call_recording_timeout").asInt()).isEqualTo(1800);
+        assertThat(automaticLeave.path("waiting_room_timeout").asInt()).isEqualTo(600);
+        assertThat(automaticLeave.path("noone_joined_timeout").asInt()).isEqualTo(600);
+        // 비녹화 구간 상한은 잠시 멈춘 회의까지 끊으므로 보내지 않는다.
+        assertThat(automaticLeave.has("in_call_not_recording_timeout")).isFalse();
+    }
+
+    @Test
+    void omitsAutomaticLeaveWhenNoTimeoutIsConfigured() throws Exception {
+        client("recall-key", "", null, 0).invite(request(), MEETING_ID);
+
+        assertThat(jsonMapper.readTree(requestBody.get()).has("automatic_leave")).isFalse();
+    }
+
+    @Test
+    void sendsOnlyTheConfiguredAutomaticLeaveTimeout() throws Exception {
+        client("recall-key", "", 1800, null).invite(request(), MEETING_ID);
+
+        JsonNode automaticLeave = jsonMapper.readTree(requestBody.get()).path("automatic_leave");
+        assertThat(automaticLeave.path("in_call_recording_timeout").asInt()).isEqualTo(1800);
+        assertThat(automaticLeave.has("waiting_room_timeout")).isFalse();
+        assertThat(automaticLeave.has("noone_joined_timeout")).isFalse();
+    }
+
+    @Test
     void convertsRecallValidationFailureToMeetingError() {
         responseStatus = 400;
         responseBody = "{\"meeting_url\":[\"Enter a valid URL.\"]}";
@@ -214,9 +243,15 @@ class RecallBotClientTest {
     }
 
     private RecallBotClient client(String apiKey, String transcriptWebhookUrl) {
+        return client(apiKey, transcriptWebhookUrl, 1800, 600);
+    }
+
+    private RecallBotClient client(String apiKey, String transcriptWebhookUrl, Integer recordingTimeoutSeconds,
+                                   Integer waitingTimeoutSeconds) {
         String apiUrl = "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/api/v1/bot/";
         RecallProperties recallProperties = new RecallProperties(
-                apiUrl, apiKey, "AIDEEP Notetaker", "", transcriptWebhookUrl);
+                apiUrl, apiKey, "AIDEEP Notetaker", "", transcriptWebhookUrl,
+                recordingTimeoutSeconds, waitingTimeoutSeconds);
         return new RecallBotClient(recallProperties, RestClient.create());
     }
 

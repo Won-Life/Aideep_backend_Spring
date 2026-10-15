@@ -48,6 +48,8 @@ recall:
   bot-name: ${RECALL_BOT_NAME:AIDEEP Meeting Notetaker}
   webhook-secret: ${RECALL_WEBHOOK_SECRET:}
   transcript-webhook-url: ${AI_TRANSCRIPT_WEBHOOK_URL:}
+  recording-timeout-seconds: ${RECALL_RECORDING_TIMEOUT_SECONDS:1800}
+  waiting-timeout-seconds: ${RECALL_WAITING_TIMEOUT_SECONDS:600}
 
 internal:
   api:

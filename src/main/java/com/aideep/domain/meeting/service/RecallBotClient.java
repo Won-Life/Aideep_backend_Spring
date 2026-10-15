@@ -170,7 +170,27 @@ public class RecallBotClient {
                 "workspace_id", inviteBotRequest.workspaceId().toString(),
                 "meeting_type", inviteBotRequest.type().name());
         return new RecallCreateBotRequest(
-                inviteBotRequest.url(), recallProperties.botName(), recordingConfig, metadata);
+                inviteBotRequest.url(), recallProperties.botName(), recordingConfig, metadata, automaticLeave());
+    }
+
+    /**
+     * 봇이 스스로 회의를 떠나는 조건. 우리가 {@code leave_call}로 끊는 것보다 이쪽이 안전하다. 봇이 자기 판단으로 나가면 평소와 같은 상태 웹훅이
+     * 도착해 회의 행이 기존 {@code applyStatus} 경로로 닫히기 때문이다.
+     * <p>
+     * 녹화 상한과 대기 상한은 서로 다른 구간을 막는다. 대기실에서 녹화까지 가지 못한 봇은 길이 상한에 걸리지 않는다. 설정이 비어 있으면 키 자체를 보내지 않아
+     * Recall 기본값을 쓴다.
+     */
+    private AutomaticLeave automaticLeave() {
+        Integer recordingTimeout = positiveOrNull(recallProperties.recordingTimeoutSeconds());
+        Integer waitingTimeout = positiveOrNull(recallProperties.waitingTimeoutSeconds());
+        if (recordingTimeout == null && waitingTimeout == null) {
+            return null;
+        }
+        return new AutomaticLeave(recordingTimeout, waitingTimeout, waitingTimeout);
+    }
+
+    private Integer positiveOrNull(Integer seconds) {
+        return seconds == null || seconds <= 0 ? null : seconds;
     }
 
     private List<RealtimeEndpoint> realtimeEndpoints() {
@@ -197,7 +217,25 @@ public class RecallBotClient {
             @JsonProperty("meeting_url") String meetingUrl,
             @JsonProperty("bot_name") String botName,
             @JsonProperty("recording_config") RecordingConfig recordingConfig,
-            Map<String, String> metadata
+            Map<String, String> metadata,
+
+            /** 설정되지 않으면 키 자체를 보내지 않아야 하므로 null일 때 직렬화에서 빼낸다. */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            @JsonProperty("automatic_leave") AutomaticLeave automaticLeave
+    ) {
+    }
+
+    /**
+     * 봇이 스스로 나가는 시간 상한. 모든 값의 단위는 초다.
+     * <p>
+     * {@code in_call_not_recording_timeout}은 녹화가 끝난 뒤를 포함한 모든 비녹화 구간을 덮어 잠시 멈춘 회의까지 끊을 수 있으므로 보내지 않고
+     * Recall 기본값에 맡긴다.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record AutomaticLeave(
+            @JsonProperty("in_call_recording_timeout") Integer inCallRecordingTimeout,
+            @JsonProperty("waiting_room_timeout") Integer waitingRoomTimeout,
+            @JsonProperty("noone_joined_timeout") Integer nooneJoinedTimeout
     ) {
     }
 
