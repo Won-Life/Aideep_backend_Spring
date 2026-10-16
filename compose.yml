@@ -3,9 +3,12 @@ services:
     build:
       context: .
     image: aideep-app-spring:latest
+    restart: unless-stopped
+    mem_limit: 1536m
     env_file:
       - .env
     environment:
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=60
       SPRING_PROFILES_ACTIVE: prod
       PORT: ${PORT:-8080}
       DD_TRACE_ENABLED: ${DD_TRACE_ENABLED:-true}
