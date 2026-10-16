@@ -143,6 +143,21 @@ class SecurityResponseTest {
     }
 
     /**
+     * Prometheus 스크레이퍼는 JWT를 들고 올 수 없어 메트릭 경로만 인증 없이 연다. 이 슬라이스에는 actuator 엔드포인트가 없으므로 통과한 요청은
+     * 404가 되고, 체인 순서가 깨지면 401이 된다. 나머지 actuator 경로는 그대로 401이어야 한다.
+     */
+    @Test
+    void prometheusScrapePathBypassesJwtAuthentication() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON404"));
+
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.errorCode").value("COMMON401"));
+    }
+
+    /**
      * 내부 API는 사용자 JWT가 아니라 공유 키로 인증한다. 키가 맞으면 기본 체인의 401에 걸리지 않고 통과하므로, 컨트롤러가 없는 이 테스트에서는 404가 된다.
      */
     @Test

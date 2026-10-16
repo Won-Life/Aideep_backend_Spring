@@ -129,6 +129,10 @@ public class SecurityConfig {
                                         "/v1/aideep/api/meeting/*/leave",
                                         "/v1/aideep/api/meeting/*/close",
                                         "/v1/aideep/api/meeting/*/sync").permitAll()
+                                // 내부망의 Prometheus가 스크레이프하는 메트릭 경로. 인증이 없는 대신 외부에 노출되지 않도록
+                                // 네트워크에서 막는다. /actuator의 다른 엔드포인트는 그대로 인증이 필요하다.
+                                .requestMatchers(org.springframework.http.HttpMethod.GET, "/actuator/prometheus")
+                                .permitAll()
                                 .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors.authenticationEntryPoint(
                                 (request, response, error) -> writeError(response, objectMapper, 401))
