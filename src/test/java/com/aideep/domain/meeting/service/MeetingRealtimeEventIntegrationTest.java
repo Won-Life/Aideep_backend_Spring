@@ -12,6 +12,7 @@ import com.aideep.domain.meeting.entity.Bottype;
 import com.aideep.domain.meeting.entity.Meeting;
 import com.aideep.domain.meeting.entity.MeetingStatus;
 import com.aideep.domain.meeting.repository.MeetingRepository;
+import com.aideep.domain.node.service.NodeLockService;
 import com.aideep.global.event.RealtimeEventEnvelope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -78,6 +80,9 @@ class MeetingRealtimeEventIntegrationTest {
 
     @MockitoSpyBean
     private StringRedisTemplate stringRedisTemplate;
+
+    @MockitoBean
+    private NodeLockService nodeLockService;
 
     @Autowired
     private MeetingStatusService meetingStatusService;

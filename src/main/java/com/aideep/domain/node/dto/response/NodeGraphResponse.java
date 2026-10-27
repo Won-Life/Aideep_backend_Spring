@@ -2,11 +2,12 @@ package com.aideep.domain.node.dto.response;
 
 import com.aideep.domain.node.entity.Edge;
 import com.aideep.domain.node.entity.Node;
+import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -21,8 +22,15 @@ public record NodeGraphResponse(List<NodeResponse> nodes, List<EdgeResponse> edg
                 edges.stream().map(EdgeResponse::of).toList());
     }
 
-    public record NodeResponse(UUID nodeId, String title, String nodeType, Position position, ObjectNode data,
-                               Instant createdAt) {
+    public record NodeResponse(UUID nodeId, String title, String nodeType, Position position,
+                               Map<String, Object> data, Instant createdAt) {
+
+        /**
+         * Jackson 3의 {@code ObjectNode}를 그대로 노출하면 springdoc(Jackson 2 기반 introspection)이 {@code setAll} 오버로드를
+         * 구분하지 못해 {@code /v3/api-docs} 생성이 실패한다. 직렬화 결과가 같은 Map으로 담는다.
+         */
+        private static final TypeReference<Map<String, Object>> DATA_TYPE = new TypeReference<>() {
+        };
 
         static NodeResponse of(Node node, ObjectMapper objectMapper) {
             return new NodeResponse(node.getId(), node.getTitle(), node.getNodeType().name(),
@@ -33,11 +41,11 @@ public record NodeGraphResponse(List<NodeResponse> nodes, List<EdgeResponse> edg
         /**
          * {@code nodes.content}는 노드 생성 명령의 data를 그대로 저장한 jsonb다. 문자열로 흘리지 않고 객체로 전달한다.
          */
-        private static ObjectNode readData(Node node, ObjectMapper objectMapper) {
+        private static Map<String, Object> readData(Node node, ObjectMapper objectMapper) {
             if (node.getContent() == null || node.getContent().isBlank()) {
-                return objectMapper.createObjectNode();
+                return Map.of();
             }
-            return objectMapper.readValue(node.getContent(), ObjectNode.class);
+            return objectMapper.readValue(node.getContent(), DATA_TYPE);
         }
     }
 

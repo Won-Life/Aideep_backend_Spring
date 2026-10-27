@@ -19,6 +19,8 @@ import com.aideep.domain.meeting.security.RecallWebhookVerifier;
 import com.aideep.domain.meeting.service.MeetingEventPublisher;
 import com.aideep.domain.meeting.service.MeetingStatusService;
 import com.aideep.domain.meeting.service.RecallStatusMapper;
+import com.aideep.domain.node.service.NodeGraphQueryService;
+import com.aideep.domain.node.service.NodeLockService;
 import com.aideep.global.exception.GlobalExceptionHandler;
 import com.aideep.global.response.ResponseWrappingAdvice;
 
@@ -68,6 +70,7 @@ import tools.jackson.databind.json.JsonMapper;
 @DataJpaTest(properties = {"spring.jpa.hibernate.ddl-auto=validate", "spring.flyway.enabled=false"})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({MeetingStatusService.class, RecallStatusMapper.class, MeetingEventPublisher.class,
+        NodeLockService.class, NodeGraphQueryService.class,
         RecallWebhookIntegrationTest.TestBeans.class})
 class RecallWebhookIntegrationTest {
 

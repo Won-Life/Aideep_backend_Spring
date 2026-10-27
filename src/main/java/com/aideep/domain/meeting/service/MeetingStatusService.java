@@ -6,15 +6,15 @@ import com.aideep.domain.meeting.dto.event.MeetingWorkspaceEvent;
 import com.aideep.domain.meeting.entity.Meeting;
 import com.aideep.domain.meeting.entity.MeetingStatus;
 import com.aideep.domain.meeting.repository.MeetingRepository;
+import com.aideep.domain.node.service.NodeLockService;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
-
-import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Recall 봇 상태 이벤트를 회의에 반영한다. 재시도와 순서가 뒤바뀐 전달이 정상이므로 반영은 멱등해야 한다.
@@ -24,13 +24,16 @@ public class MeetingStatusService {
 
     private final MeetingRepository meetingRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final NodeLockService nodeLockService;
     private final Clock clock;
 
     public MeetingStatusService(MeetingRepository meetingRepository,
                                 ApplicationEventPublisher applicationEventPublisher,
+                                NodeLockService nodeLockService,
                                 Clock clock) {
         this.meetingRepository = meetingRepository;
         this.applicationEventPublisher = applicationEventPublisher;
+        this.nodeLockService = nodeLockService;
         this.clock = clock;
     }
 
@@ -48,6 +51,10 @@ public class MeetingStatusService {
             return Result.IGNORED;
         }
         meetingRepository.save(meeting);
+        // 회의가 종결되면 같은 트랜잭션에서 잠금을 해제한다. 나중으로 미루면 상태만 끝나고 노드가 영구히 잠긴 채 남는다.
+        if (status.isTerminal()) {
+            nodeLockService.unlockByMeeting(meeting.getId(), clock.instant());
+        }
         // 커밋 후에만 발행한다. 롤백되면 AI 서버도 WS 서버도 일어나지 않은 전이를 통지받지 않는다.
         if (status == MeetingStatus.RECORDING && recordingNotStarted) {
             applicationEventPublisher.publishEvent(MeetingStartedEvent.of(UUID.randomUUID(), occurredAt,

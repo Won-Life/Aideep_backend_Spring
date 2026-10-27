@@ -128,6 +128,11 @@ CREATE TABLE meetings
     updated_at      timestamptz         NOT NULL,
     deleted_at      timestamptz
 );
+-- 회의 중 사용자 수정을 막기 위해 노드를 잠근 회의(V9). nodes가 meetings보다 먼저 만들어지므로 여기서 추가한다.
+ALTER TABLE nodes
+    ADD COLUMN locked_by_meeting_id uuid REFERENCES meetings (meeting_id) ON DELETE SET NULL;
+CREATE INDEX idx_nodes_locked_by_meeting ON nodes (locked_by_meeting_id) WHERE locked_by_meeting_id IS NOT NULL;
+
 CREATE INDEX idx_meetings_workspace_status ON meetings (workspace_id, status);
 CREATE INDEX idx_meetings_node ON meetings (node_id);
 -- 진행 중인 회의의 meeting_url은 유일하다. 종료·삭제된 회의는 제외한다(V8).

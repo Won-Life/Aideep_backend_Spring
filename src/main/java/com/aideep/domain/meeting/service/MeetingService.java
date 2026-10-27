@@ -8,6 +8,7 @@ import com.aideep.domain.meeting.entity.Meeting;
 import com.aideep.domain.meeting.entity.MeetingStatus;
 import com.aideep.domain.meeting.exception.MeetingError;
 import com.aideep.domain.meeting.repository.MeetingRepository;
+import com.aideep.domain.node.service.NodeLockService;
 import com.aideep.domain.node.service.NodeQueryService;
 import com.aideep.domain.workspace.service.WorkspaceQueryService;
 import com.aideep.global.exception.BusinessException;
@@ -27,16 +28,19 @@ public class MeetingService {
     private final MeetingRepository meetingRepository;
     private final WorkspaceQueryService workspaceQueryService;
     private final NodeQueryService nodeQueryService;
+    private final NodeLockService nodeLockService;
     private final ApplicationEventPublisher applicationEventPublisher;
     private final Clock clock;
 
     public MeetingService(RecallBotClient recallBotClient, MeetingRepository meetingRepository,
                           WorkspaceQueryService workspaceQueryService, NodeQueryService nodeQueryService,
-                          ApplicationEventPublisher applicationEventPublisher, Clock clock) {
+                          NodeLockService nodeLockService, ApplicationEventPublisher applicationEventPublisher,
+                          Clock clock) {
         this.recallBotClient = recallBotClient;
         this.meetingRepository = meetingRepository;
         this.workspaceQueryService = workspaceQueryService;
         this.nodeQueryService = nodeQueryService;
+        this.nodeLockService = nodeLockService;
         this.applicationEventPublisher = applicationEventPublisher;
         this.clock = clock;
     }
@@ -61,6 +65,9 @@ public class MeetingService {
 
         meeting.linkBot(inviteBotResponse.botId(), clock.instant());
         meetingRepository.save(meeting);
+        // 회의 노드와 하위 노드는 회의가 끝날 때까지 사용자가 직접 수정할 수 없다. AI 서버의 노드 명령은 계속 반영된다.
+        nodeLockService.lockDescendants(inviteBotRequest.workspaceId(), inviteBotRequest.nodeId(), meeting.getId(),
+                clock.instant());
         // 커밋 후에만 발행한다. linkBot 이후여야 payload의 botId가 비지 않는다.
         applicationEventPublisher.publishEvent(
                 MeetingRealtimeEvent.of(MeetingWorkspaceEvent.botRequested(meeting, meeting.getCreatedAt())));

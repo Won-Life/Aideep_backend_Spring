@@ -11,6 +11,7 @@ import com.aideep.domain.meeting.entity.Bottype;
 import com.aideep.domain.meeting.entity.Meeting;
 import com.aideep.domain.meeting.entity.MeetingStatus;
 import com.aideep.domain.meeting.repository.MeetingRepository;
+import com.aideep.domain.node.service.NodeLockService;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -35,13 +36,15 @@ class MeetingStatusServiceTest {
 
     private MeetingRepository meetingRepository;
     private ApplicationEventPublisher applicationEventPublisher;
+    private NodeLockService nodeLockService;
     private MeetingStatusService meetingStatusService;
 
     @BeforeEach
     void setUp() {
         meetingRepository = mock(MeetingRepository.class);
         applicationEventPublisher = mock(ApplicationEventPublisher.class);
-        meetingStatusService = new MeetingStatusService(meetingRepository, applicationEventPublisher,
+        nodeLockService = mock(NodeLockService.class);
+        meetingStatusService = new MeetingStatusService(meetingRepository, applicationEventPublisher, nodeLockService,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -191,6 +194,49 @@ class MeetingStatusServiceTest {
         meetingStatusService.apply(BOT_ID, MeetingStatus.RECORDING, null, CREATED_AT.plusSeconds(10));
 
         org.mockito.Mockito.verifyNoInteractions(applicationEventPublisher);
+    }
+
+    /**
+     * 종결 상태(CALL_ENDED/DONE/FAILED)에서만 노드 잠금을 해제한다. 중간 상태에서 풀면 회의 중에 사용자가 수정할 수 있게 된다.
+     */
+    @Test
+    void unlocksNodesOnlyOnTerminalStatuses() {
+        Meeting meeting = meeting();
+        when(meetingRepository.findByBotIdAndDeletedAtIsNull(BOT_ID)).thenReturn(Optional.of(meeting));
+
+        meetingStatusService.apply(BOT_ID, MeetingStatus.JOINING, null, CREATED_AT.plusSeconds(5));
+        meetingStatusService.apply(BOT_ID, MeetingStatus.RECORDING, null, CREATED_AT.plusSeconds(10));
+        org.mockito.Mockito.verifyNoInteractions(nodeLockService);
+
+        meetingStatusService.apply(BOT_ID, MeetingStatus.CALL_ENDED, null, CREATED_AT.plusSeconds(20));
+
+        org.mockito.Mockito.verify(nodeLockService).unlockByMeeting(meeting.getId(), NOW);
+    }
+
+    @Test
+    void unlocksNodesWhenTheBotFails() {
+        Meeting meeting = meeting();
+        when(meetingRepository.findByBotIdAndDeletedAtIsNull(BOT_ID)).thenReturn(Optional.of(meeting));
+
+        meetingStatusService.apply(BOT_ID, MeetingStatus.FAILED, "bot_kicked", CREATED_AT.plusSeconds(20));
+
+        org.mockito.Mockito.verify(nodeLockService).unlockByMeeting(meeting.getId(), NOW);
+    }
+
+    /**
+     * 순서가 뒤바뀐 이벤트는 상태를 바꾸지 않으므로 잠금도 건드리지 않는다.
+     */
+    @Test
+    void doesNotUnlockNodesForIgnoredOrUnknownEvents() {
+        Meeting meeting = meeting();
+        when(meetingRepository.findByBotIdAndDeletedAtIsNull(BOT_ID)).thenReturn(Optional.of(meeting));
+        meetingStatusService.apply(BOT_ID, MeetingStatus.RECORDING, null, CREATED_AT.plusSeconds(10));
+
+        meetingStatusService.apply(BOT_ID, MeetingStatus.DONE, null, CREATED_AT.plusSeconds(5));
+        when(meetingRepository.findByBotIdAndDeletedAtIsNull(BOT_ID)).thenReturn(Optional.empty());
+        meetingStatusService.apply(BOT_ID, MeetingStatus.DONE, null, CREATED_AT.plusSeconds(30));
+
+        org.mockito.Mockito.verifyNoInteractions(nodeLockService);
     }
 
     private Meeting meeting() {
