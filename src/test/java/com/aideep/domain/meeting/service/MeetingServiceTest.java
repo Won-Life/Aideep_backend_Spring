@@ -17,6 +17,7 @@ import com.aideep.domain.meeting.entity.MeetingStatus;
 import org.springframework.dao.DataIntegrityViolationException;
 import com.aideep.domain.meeting.exception.MeetingError;
 import com.aideep.domain.meeting.repository.MeetingRepository;
+import com.aideep.domain.node.service.NodeLockService;
 import com.aideep.domain.node.service.NodeQueryService;
 import com.aideep.domain.workspace.service.WorkspaceQueryService;
 import com.aideep.global.exception.BusinessException;
@@ -43,6 +44,7 @@ class MeetingServiceTest {
     private MeetingRepository meetingRepository;
     private WorkspaceQueryService workspaceQueryService;
     private NodeQueryService nodeQueryService;
+    private NodeLockService nodeLockService;
     private MeetingService meetingService;
 
     @BeforeEach
@@ -51,8 +53,9 @@ class MeetingServiceTest {
         meetingRepository = mock(MeetingRepository.class);
         workspaceQueryService = mock(WorkspaceQueryService.class);
         nodeQueryService = mock(NodeQueryService.class);
+        nodeLockService = mock(NodeLockService.class);
         meetingService = new MeetingService(recallBotClient, meetingRepository, workspaceQueryService,
-                nodeQueryService, Clock.fixed(NOW, ZoneOffset.UTC));
+                nodeQueryService, nodeLockService, Clock.fixed(NOW, ZoneOffset.UTC));
         when(workspaceQueryService.existsActiveWorkspace(WORKSPACE_ID)).thenReturn(true);
         when(nodeQueryService.existsActiveNode(WORKSPACE_ID, NODE_ID)).thenReturn(true);
         when(meetingRepository.save(any(Meeting.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -215,6 +218,31 @@ class MeetingServiceTest {
                 .isEqualTo(MeetingError.BOT_ALREADY_INVITED);
 
         verifyNoInteractions(recallBotClient);
+    }
+
+    /**
+     * 회의 중에는 회의 노드와 하위 노드를 사용자가 직접 수정할 수 없다. 잠금은 봇 생성이 성공한 뒤 같은 트랜잭션에서 수행한다.
+     */
+    @Test
+    void locksTheMeetingNodeSubtreeAfterTheBotIsCreated() {
+        when(recallBotClient.invite(eq(request()), any(UUID.class))).thenReturn(new InviteBotResponse(BOT_ID));
+
+        meetingService.inviteBot(request(), USER_ID);
+
+        ArgumentCaptor<Meeting> meetingCaptor = ArgumentCaptor.forClass(Meeting.class);
+        verify(meetingRepository, org.mockito.Mockito.atLeastOnce()).save(meetingCaptor.capture());
+        verify(nodeLockService).lockDescendants(WORKSPACE_ID, NODE_ID, meetingCaptor.getValue().getId(), NOW);
+    }
+
+    @Test
+    void doesNotLockNodesWhenRecallRejectsTheInvitation() {
+        when(recallBotClient.invite(eq(request()), any(UUID.class)))
+                .thenThrow(new BusinessException(MeetingError.BOT_INVITATION_REJECTED));
+
+        assertThatThrownBy(() -> meetingService.inviteBot(request(), USER_ID))
+                .isInstanceOf(BusinessException.class);
+
+        verifyNoInteractions(nodeLockService);
     }
 
     private InviteBotRequest request() {

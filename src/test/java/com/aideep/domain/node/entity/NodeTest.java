@@ -32,6 +32,53 @@ class NodeTest {
     }
 
     @Test
+    void locksAndUnlocksOnlyForTheOwningMeeting() {
+        UUID meetingId = UUID.fromString("77777777-7777-4777-8777-777777777777");
+        UUID otherMeetingId = UUID.fromString("88888888-8888-4888-8888-888888888888");
+        Node node = Node.create(WORKSPACE_ID, "회의 노드", NodeType.DATA, 0, 0, "{}", NOW);
+        Instant locked = NOW.plusSeconds(10);
+
+        assertThat(node.isLocked()).isFalse();
+        assertThat(node.lockForMeeting(meetingId, locked)).isTrue();
+        assertThat(node.isLocked()).isTrue();
+        assertThat(node.getLockedByMeetingId()).isEqualTo(meetingId);
+        assertThat(node.getUpdatedAt()).isEqualTo(locked);
+
+        // 이미 잠긴 노드는 다른 회의가 가져가지 못한다. 가져가면 먼저 끝난 회의가 진행 중인 회의의 잠금을 풀어버린다.
+        assertThat(node.lockForMeeting(otherMeetingId, NOW.plusSeconds(20))).isFalse();
+        assertThat(node.getLockedByMeetingId()).isEqualTo(meetingId);
+        assertThat(node.getUpdatedAt()).isEqualTo(locked);
+
+        assertThat(node.unlockForMeeting(otherMeetingId, NOW.plusSeconds(30))).isFalse();
+        assertThat(node.getLockedByMeetingId()).isEqualTo(meetingId);
+
+        Instant unlocked = NOW.plusSeconds(40);
+        assertThat(node.unlockForMeeting(meetingId, unlocked)).isTrue();
+        assertThat(node.isLocked()).isFalse();
+        assertThat(node.getLockedByMeetingId()).isNull();
+        assertThat(node.getUpdatedAt()).isEqualTo(unlocked);
+        // 이미 풀린 노드를 다시 풀어도 시각을 바꾸지 않는다.
+        assertThat(node.unlockForMeeting(meetingId, NOW.plusSeconds(50))).isFalse();
+        assertThat(node.getUpdatedAt()).isEqualTo(unlocked);
+    }
+
+    /**
+     * 잠금은 사용자 직접 수정만 막는 표시다. AI 서버의 노드 명령은 잠긴 노드에도 그대로 반영된다.
+     */
+    @Test
+    void stillAppliesPatchWhileLocked() {
+        UUID meetingId = UUID.fromString("77777777-7777-4777-8777-777777777777");
+        Node node = Node.create(WORKSPACE_ID, "회의 노드", NodeType.DATA, 0, 0, "{}", NOW);
+        node.lockForMeeting(meetingId, NOW);
+
+        node.applyPatch("AI가 쓴 제목", null, null, 1, NOW.plusSeconds(10));
+
+        assertThat(node.getTitle()).isEqualTo("AI가 쓴 제목");
+        assertThat(node.getVersion()).isEqualTo(2);
+        assertThat(node.getLockedByMeetingId()).isEqualTo(meetingId);
+    }
+
+    @Test
     void rejectsTooLongTitleAndNonFinitePosition() {
         String tooLongTitle = "가".repeat(Node.MAX_TITLE_LENGTH + 1);
 
