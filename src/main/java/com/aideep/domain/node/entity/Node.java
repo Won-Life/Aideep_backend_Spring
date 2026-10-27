@@ -50,6 +50,13 @@ public class Node extends BaseEntity {
 
     private Integer depth;
 
+    /**
+     * 진행 중인 회의가 이 노드를 잠갔다면 그 회의 ID다. null이면 사용자 수정이 가능하다.
+     * AI 서버가 보내는 노드 명령은 이 값과 무관하게 반영한다.
+     */
+    @Column(name = "locked_by_meeting_id")
+    private UUID lockedByMeetingId;
+
     protected Node() {
     }
 
@@ -94,6 +101,36 @@ public class Node extends BaseEntity {
 
     public void delete(Instant now) {
         markDeleted(now);
+    }
+
+    public boolean isLocked() {
+        return lockedByMeetingId != null;
+    }
+
+    /**
+     * 회의가 이 노드의 사용자 수정을 잠근다. 이미 다른 회의가 잠근 노드는 그대로 두고 false를 반환한다.
+     * <p>
+     * 먼저 잠근 회의의 소유를 유지하는 이유는, 나중 회의가 덮어쓰면 먼저 끝난 회의가 아직 진행 중인 회의의 잠금을 풀어버리기 때문이다.
+     */
+    public boolean lockForMeeting(UUID meetingId, Instant now) {
+        if (lockedByMeetingId != null) {
+            return false;
+        }
+        lockedByMeetingId = meetingId;
+        updateTimestamp(now);
+        return true;
+    }
+
+    /**
+     * 잠근 회의만 잠금을 해제할 수 있다. 다른 회의가 잠근 노드면 그대로 두고 false를 반환한다.
+     */
+    public boolean unlockForMeeting(UUID meetingId, Instant now) {
+        if (lockedByMeetingId == null || !lockedByMeetingId.equals(meetingId)) {
+            return false;
+        }
+        lockedByMeetingId = null;
+        updateTimestamp(now);
+        return true;
     }
 
     private static void requireTitleLength(String title) {

@@ -21,6 +21,8 @@ public interface NodeRepository extends JpaRepository<Node, UUID> {
 
     List<Node> findByIdInAndWorkspaceIdAndDeletedAtIsNullOrderByCreatedAtAsc(Collection<UUID> ids, UUID workspaceId);
 
+    List<Node> findByLockedByMeetingIdAndDeletedAtIsNull(UUID lockedByMeetingId);
+
     /**
      * 기준 노드와, 엣지를 따라 도달하는 하위 노드의 ID를 한 번의 재귀 CTE로 모은다.
      * <p>

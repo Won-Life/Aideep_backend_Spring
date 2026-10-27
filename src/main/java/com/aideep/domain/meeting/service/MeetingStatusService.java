@@ -4,6 +4,7 @@ import com.aideep.domain.meeting.dto.event.MeetingStartedEvent;
 import com.aideep.domain.meeting.entity.Meeting;
 import com.aideep.domain.meeting.entity.MeetingStatus;
 import com.aideep.domain.meeting.repository.MeetingRepository;
+import com.aideep.domain.node.service.NodeLockService;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -22,13 +23,16 @@ public class MeetingStatusService {
 
     private final MeetingRepository meetingRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final NodeLockService nodeLockService;
     private final Clock clock;
 
     public MeetingStatusService(MeetingRepository meetingRepository,
                                 ApplicationEventPublisher applicationEventPublisher,
+                                NodeLockService nodeLockService,
                                 Clock clock) {
         this.meetingRepository = meetingRepository;
         this.applicationEventPublisher = applicationEventPublisher;
+        this.nodeLockService = nodeLockService;
         this.clock = clock;
     }
 
@@ -44,6 +48,10 @@ public class MeetingStatusService {
             return Result.IGNORED;
         }
         meetingRepository.save(meeting);
+        // 회의가 종결되면 같은 트랜잭션에서 잠금을 해제한다. 나중으로 미루면 상태만 끝나고 노드가 영구히 잠긴 채 남는다.
+        if (status.isTerminal()) {
+            nodeLockService.unlockByMeeting(meeting.getId(), clock.instant());
+        }
         if (!recordingNotStarted || status != MeetingStatus.RECORDING) {
             return Result.APPLIED;
         }
