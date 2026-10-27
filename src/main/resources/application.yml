@@ -47,6 +47,9 @@ recall:
   api-key: ${RECALL_API_KEY:}
   bot-name: ${RECALL_BOT_NAME:AIDEEP Meeting Notetaker}
   webhook-secret: ${RECALL_WEBHOOK_SECRET:}
+  transcript-webhook-url: ${AI_TRANSCRIPT_WEBHOOK_URL:}
+  recording-timeout-seconds: ${RECALL_RECORDING_TIMEOUT_SECONDS:1800}
+  waiting-timeout-seconds: ${RECALL_WAITING_TIMEOUT_SECONDS:600}
 
 internal:
   api:
@@ -76,7 +79,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,metrics
+        include: health,metrics,prometheus
   endpoint:
     health:
       show-details: never
@@ -95,3 +98,7 @@ management:
         port: ${DD_DOGSTATSD_PORT:8125}
         protocol: udp
         polling-frequency: 10s
+  prometheus:
+    metrics:
+      export:
+        enabled: ${PROMETHEUS_METRICS_ENABLED:true}

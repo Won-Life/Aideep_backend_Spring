@@ -11,10 +11,13 @@ import com.aideep.domain.auth.service.JwtTokenService;
 import com.aideep.domain.auth.service.RedisAuthStore;
 import com.aideep.global.response.ResponseWrappingAdvice;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.composite.CompositeMeterRegistry;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Collection;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -94,10 +97,27 @@ class ObservabilityIntegrationTest {
         mockMvc.perform(get("/actuator/metrics").with(user("monitor")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.names").isArray())
                 .andExpect(jsonPath("$.resultType").doesNotExist());
-        for (String endpoint : new String[]{"env", "configprops", "heapdump", "prometheus"}) {
+        for (String endpoint : new String[]{"env", "configprops", "heapdump"}) {
             mockMvc.perform(get("/actuator/" + endpoint).with(user("monitor")))
                     .andExpect(status().isNotFound());
         }
+    }
+
+    /**
+     * Prometheus 스크레이퍼는 JWT를 들고 올 수 없어 이 경로만 인증 없이 연다. 외부 노출은 네트워크에서 막는 전제이므로, 다른 actuator
+     * 엔드포인트가 같이 열리지 않았는지 함께 확인한다.
+     */
+    @Test
+    void exposesPrometheusScrapeEndpointWithoutAuthentication() throws Exception {
+        String body = mockMvc.perform(get("/actuator/prometheus"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).contains("jvm_memory_used_bytes");
+        assertThat(body).contains("service=\"observability-test\"");
+        assertThat(body).contains("env=\"test\"");
+        mockMvc.perform(get("/actuator/health")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/actuator/metrics")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -108,8 +128,13 @@ class ObservabilityIntegrationTest {
         assertThat(meterRegistry.find("hikaricp.connections.active").gauge()).isNotNull();
         assertThat(meterRegistry.find("jdbc.connections.max").gauge()).isNotNull();
         assertThat(meterRegistry.find("http.server.requests").timer()).isNotNull();
-        assertThat(meterRegistry.find("jvm.memory.used").tags("service", "observability-test",
-                "env", "test", "version", "integration").gauge()).isNotNull();
+        // 레지스트리가 statsd와 prometheus 둘이라 주입되는 MeterRegistry는 Composite이다. 공통 태그는 각 자식 레지스트리에 걸린
+        // MeterFilter로 붙으므로 Composite에서는 조회되지 않는다. 실제로 내보내는 쪽에 붙었는지를 확인한다.
+        Collection<MeterRegistry> registries = meterRegistry instanceof CompositeMeterRegistry composite
+                ? composite.getRegistries() : List.of(meterRegistry);
+        assertThat(registries).isNotEmpty().allSatisfy(registry ->
+                assertThat(registry.find("jvm.memory.used").tags("service", "observability-test",
+                        "env", "test", "version", "integration").gauge()).isNotNull());
     }
 
     @Configuration(proxyBeanMethods = false)

@@ -2,13 +2,7 @@ package com.aideep.domain.auth.service;
 
 import com.aideep.domain.auth.config.AuthProperties;
 import com.aideep.domain.auth.dto.Identity;
-import com.aideep.domain.auth.dto.request.ChangeUsernameRequest;
-import com.aideep.domain.auth.dto.request.LoginRequest;
-import com.aideep.domain.auth.dto.request.PasswordRequest;
-import com.aideep.domain.auth.dto.request.PasswordResetConfirmRequest;
-import com.aideep.domain.auth.dto.request.PasswordResetRequest;
-import com.aideep.domain.auth.dto.request.SetOnboard;
-import com.aideep.domain.auth.dto.request.SignupRequest;
+import com.aideep.domain.auth.dto.request.*;
 import com.aideep.domain.auth.dto.response.TokensResponse;
 import com.aideep.domain.auth.entity.AuthUser;
 import com.aideep.domain.auth.exception.AuthError;
@@ -161,7 +155,9 @@ public class AuthService {
         user.changeUsername(body.username(), clock.instant());
     }
 
-    /** 가입된 이메일에만 1회용 재설정 링크를 보낸다. 링크의 토큰 없이는 재설정할 수 없다. */
+    /**
+     * 가입된 이메일에만 1회용 재설정 링크를 보낸다. 링크의 토큰 없이는 재설정할 수 없다.
+     */
     public void requestPasswordReset(PasswordResetRequest body) {
         AuthUser user = authUserRepository.findByEmail(body.email())
                 .orElseThrow(() -> new BusinessException(AuthError.USER_NOT_FOUND));
@@ -187,8 +183,8 @@ public class AuthService {
      * FK의 on delete cascade로 함께 제거된다.
      */
     public void deleteAccount(CurrentUser currentUser, Jwt token) {
-        if (workspaceQueryService.existsOwnedWorkspace(currentUser.userId()))
-            throw new BusinessException(AuthError.OWNED_WORKSPACE_EXISTS);
+//        if (workspaceQueryService.existsOwnedWorkspace(currentUser.userId()))
+//            throw new BusinessException(AuthError.OWNED_WORKSPACE_EXISTS);
         authDatabase.deleteUser(currentUser.userId());
         logout(currentUser, token);
     }

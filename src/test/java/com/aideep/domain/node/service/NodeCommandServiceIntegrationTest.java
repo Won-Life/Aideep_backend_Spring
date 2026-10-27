@@ -103,6 +103,45 @@ class NodeCommandServiceIntegrationTest {
     }
 
     @Test
+    void createsEdgeFromParentInSameTransactionWhenParentNodeIdIsGiven() {
+        nodeCommandService.apply(createEvent(UUID.randomUUID()));
+        UUID parentId = nodeRepository.findAll().getFirst().getId();
+        UUID childEventId = UUID.randomUUID();
+
+        nodeCommandService.apply(nodeEventParser.parse(
+                createEventJson(childEventId, WORKSPACE_ID).replace("\"payload\": {",
+                        "\"payload\": {\"parentNodeId\": \"" + parentId + "\", \"sourceHandle\": \"right\","
+                                + " \"targetHandle\": \"left\",")));
+
+        UUID childId = UUID.fromString(jdbcTemplate.queryForObject(
+                "select node_id::text from nodes where node_id <> ?", String.class, parentId));
+        Map<String, Object> edge = jdbcTemplate.queryForMap(
+                "select source_id, target_id, source_handle, target_handle, workspace_id from edges");
+        assertThat(edge).containsEntry("source_id", parentId)
+                .containsEntry("target_id", childId)
+                .containsEntry("source_handle", "right")
+                .containsEntry("target_handle", "left")
+                .containsEntry("workspace_id", WORKSPACE_ID);
+    }
+
+    @Test
+    void failsCreateAndRollsBackWhenParentNodeDoesNotExistInWorkspace() {
+        UUID eventId = UUID.randomUUID();
+        UUID missingParent = UUID.fromString("77777777-7777-4777-8777-777777777777");
+
+        assertThatThrownBy(() -> nodeCommandService.apply(nodeEventParser.parse(
+                createEventJson(eventId, WORKSPACE_ID).replace("\"payload\": {",
+                        "\"payload\": {\"parentNodeId\": \"" + missingParent + "\","))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode().getCode())
+                .isEqualTo("NODE-008");
+
+        assertThat(nodeRepository.count()).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from edges", Long.class)).isZero();
+        assertThat(processedNodeEventRepository.existsById(eventId)).isFalse();
+    }
+
+    @Test
     void persistsStableCreateResultWithTheNodeTransaction() {
         UUID eventId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         nodeCommandService.apply(createEvent(eventId));

@@ -8,9 +8,12 @@ import com.aideep.domain.node.dto.event.NodePatchCommand;
 import com.aideep.domain.node.dto.event.NodePosition;
 import com.aideep.domain.node.dto.event.NodeRealtimeEvent;
 import com.aideep.domain.node.dto.event.NodeWorkspaceEvent;
+import com.aideep.domain.node.entity.Edge;
 import com.aideep.domain.node.entity.Node;
 import com.aideep.domain.node.entity.NodeCommandResult;
+import com.aideep.domain.node.repository.EdgeRepository;
 import com.aideep.domain.node.repository.NodeCommandResultRepository;
+import java.util.List;
 import java.util.Map;
 import com.aideep.domain.node.entity.ProcessedNodeEvent;
 import com.aideep.domain.node.exception.NodeError;
@@ -37,6 +40,7 @@ public class NodeCommandService {
 
     private final NodeCommandResultRepository nodeCommandResultRepository;
     private final NodeRepository nodeRepository;
+    private final EdgeRepository edgeRepository;
     private final ProcessedNodeEventRepository processedNodeEventRepository;
     private final NodeCommandPayloadParser nodeCommandPayloadParser;
     private final WorkspaceQueryService workspaceQueryService;
@@ -46,6 +50,7 @@ public class NodeCommandService {
 
     public NodeCommandService(NodeCommandResultRepository nodeCommandResultRepository,
                               NodeRepository nodeRepository,
+                              EdgeRepository edgeRepository,
                               ProcessedNodeEventRepository processedNodeEventRepository,
                               NodeCommandPayloadParser nodeCommandPayloadParser,
                               WorkspaceQueryService workspaceQueryService,
@@ -54,6 +59,7 @@ public class NodeCommandService {
                               ApplicationEventPublisher applicationEventPublisher) {
         this.nodeCommandResultRepository = nodeCommandResultRepository;
         this.nodeRepository = nodeRepository;
+        this.edgeRepository = edgeRepository;
         this.processedNodeEventRepository = processedNodeEventRepository;
         this.nodeCommandPayloadParser = nodeCommandPayloadParser;
         this.workspaceQueryService = workspaceQueryService;
@@ -90,27 +96,45 @@ public class NodeCommandService {
         }
 
         Instant now = clock.instant();
-        NodeWorkspaceEvent nodeWorkspaceEvent = switch (nodeEventEnvelope.eventType()) {
+        List<NodeWorkspaceEvent> nodeWorkspaceEvents = switch (nodeEventEnvelope.eventType()) {
             case NODE_CREATE_REQUESTED -> createNode(nodeEventEnvelope, now);
-            case NODE_PATCH_REQUESTED -> patchNode(nodeEventEnvelope, now);
+            case NODE_PATCH_REQUESTED -> List.of(patchNode(nodeEventEnvelope, now));
         };
         processedNodeEventRepository.save(new ProcessedNodeEvent(nodeEventEnvelope.eventId(),
                 nodeEventEnvelope.eventType().name(), nodeEventEnvelope.workspaceId(),
                 nodeEventEnvelope.occurredAt(), now));
         processedNodeEventRepository.flush();
-        applicationEventPublisher.publishEvent(new NodeRealtimeEvent(nodeEventEnvelope.eventId(), nodeWorkspaceEvent));
+        applicationEventPublisher.publishEvent(new NodeRealtimeEvent(nodeEventEnvelope.eventId(),
+                nodeEventEnvelope.workspaceId(), nodeWorkspaceEvents));
     }
 
-    private NodeWorkspaceEvent createNode(NodeEventEnvelope nodeEventEnvelope, Instant now) {
+    /** edge를 만들었다면 노드가 먼저 그려질 수 있도록 {@code NODE_CREATE} 다음에 {@code EDGE_CREATE}를 발행한다. */
+    private List<NodeWorkspaceEvent> createNode(NodeEventEnvelope nodeEventEnvelope, Instant now) {
         NodeCreateCommand nodeCreateCommand = nodeCommandPayloadParser.parseCreate(nodeEventEnvelope);
+        UUID parentNodeId = nodeCreateCommand.parentNodeId();
+        if (parentNodeId != null && !nodeRepository.existsByIdAndWorkspaceIdAndDeletedAtIsNull(parentNodeId,
+                nodeEventEnvelope.workspaceId())) {
+            throw new BusinessException(NodeError.NODE_NOT_FOUND,
+                    "Parent node not found in workspace. nodeId=" + parentNodeId
+                            + " workspaceId=" + nodeEventEnvelope.workspaceId());
+        }
         Node node = nodeRepository.save(Node.create(nodeEventEnvelope.workspaceId(), nodeCreateCommand.title(),
                 nodeCreateCommand.nodeType(), nodeCreateCommand.position().x(), nodeCreateCommand.position().y(),
                 writeJson(nodeCreateCommand.data()), now));
+        Edge edge = parentNodeId == null ? null
+                : edgeRepository.save(Edge.create(nodeEventEnvelope.workspaceId(), parentNodeId, node.getId(),
+                        nodeCreateCommand.sourceHandle(), nodeCreateCommand.targetHandle(), now));
         saveSuccess(nodeEventEnvelope, node, now);
-        return new NodeWorkspaceEvent.Created("NODE_CREATE", node.getWorkspaceId(), "system:ai",
-                new NodeWorkspaceEvent.NodeSnapshot(node.getId(), node.getTitle(), node.getNodeType().name(),
-                        new NodePosition(node.getPositionX(), node.getPositionY()), readObject(node.getContent()),
-                        node.getCreatedAt()));
+        NodeWorkspaceEvent nodeCreated = new NodeWorkspaceEvent.Created("NODE_CREATE", node.getWorkspaceId(),
+                "system:ai", new NodeWorkspaceEvent.NodeSnapshot(node.getId(), node.getTitle(),
+                node.getNodeType().name(), new NodePosition(node.getPositionX(), node.getPositionY()),
+                readObject(node.getContent()), node.getCreatedAt()));
+        if (edge == null) {
+            return List.of(nodeCreated);
+        }
+        return List.of(nodeCreated, new NodeWorkspaceEvent.EdgeCreated("EDGE_CREATE", edge.getWorkspaceId(),
+                "system:ai", new NodeWorkspaceEvent.EdgeSnapshot(edge.getId(), edge.getSourceId(), edge.getTargetId(),
+                edge.getSourceHandle(), edge.getTargetHandle())));
     }
 
     private NodeWorkspaceEvent patchNode(NodeEventEnvelope nodeEventEnvelope, Instant now) {

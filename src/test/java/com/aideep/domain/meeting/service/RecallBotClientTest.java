@@ -19,6 +19,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -30,9 +31,11 @@ class RecallBotClientTest {
     private static final UUID NODE_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
     private static final UUID BOT_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
     private static final UUID MEETING_ID = UUID.fromString("66666666-6666-4666-8666-666666666666");
+    private static final String TRANSCRIPT_WEBHOOK_URL = "https://ai.example.test/webhooks/recall/transcript";
 
     private final AtomicReference<String> authorization = new AtomicReference<>();
     private final AtomicReference<String> requestBody = new AtomicReference<>();
+    private final AtomicReference<String> requestPath = new AtomicReference<>();
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     private HttpServer httpServer;
@@ -73,10 +76,72 @@ class RecallBotClientTest {
                 .path("elevenlabs_streaming").path("model_id").asText()).isEqualTo("scribe_v2_realtime");
         assertThat(root.path("recording_config").path("transcript").path("diarization")
                 .path("use_separate_streams_when_available").asBoolean()).isTrue();
-        assertThat(root.path("recording_config").has("realtime_endpoints")).isFalse();
         assertThat(root.path("metadata").path("meeting_id").asText()).isEqualTo(MEETING_ID.toString());
         assertThat(root.path("metadata").path("workspace_id").asText()).isEqualTo(WORKSPACE_ID.toString());
         assertThat(root.path("metadata").path("meeting_type").asText()).isEqualTo("GOOGLE");
+    }
+
+    @Test
+    void registersAiServerAsRealtimeTranscriptWebhook() throws Exception {
+        RecallBotClient recallBotClient = client("recall-key", TRANSCRIPT_WEBHOOK_URL);
+
+        recallBotClient.invite(request(), MEETING_ID);
+
+        JsonNode realtimeEndpoints = jsonMapper.readTree(requestBody.get())
+                .path("recording_config").path("realtime_endpoints");
+        assertThat(realtimeEndpoints.isArray()).isTrue();
+        assertThat(realtimeEndpoints).hasSize(1);
+        JsonNode endpoint = realtimeEndpoints.get(0);
+        assertThat(endpoint.path("type").asText()).isEqualTo("webhook");
+        assertThat(endpoint.path("url").asText()).isEqualTo(TRANSCRIPT_WEBHOOK_URL);
+        assertThat(endpoint.path("events")).singleElement()
+                .satisfies(event -> assertThat(event.asText()).isEqualTo("transcript.data"));
+    }
+
+    @Test
+    void omitsLanguageCodeSoKoreanAndEnglishAreDetectedAutomatically() throws Exception {
+        client("recall-key", TRANSCRIPT_WEBHOOK_URL).invite(request(), MEETING_ID);
+
+        JsonNode elevenLabsStreaming = jsonMapper.readTree(requestBody.get())
+                .path("recording_config").path("transcript").path("provider").path("elevenlabs_streaming");
+        assertThat(elevenLabsStreaming.has("language_code")).isFalse();
+    }
+
+    @Test
+    void omitsRealtimeEndpointsWhenAiServerUrlIsNotConfigured() throws Exception {
+        client("recall-key").invite(request(), MEETING_ID);
+
+        assertThat(jsonMapper.readTree(requestBody.get()).path("recording_config").has("realtime_endpoints"))
+                .isFalse();
+    }
+
+    @Test
+    void capsTheBotWithAutomaticLeaveTimeouts() throws Exception {
+        client("recall-key").invite(request(), MEETING_ID);
+
+        JsonNode automaticLeave = jsonMapper.readTree(requestBody.get()).path("automatic_leave");
+        assertThat(automaticLeave.path("in_call_recording_timeout").asInt()).isEqualTo(1800);
+        assertThat(automaticLeave.path("waiting_room_timeout").asInt()).isEqualTo(600);
+        assertThat(automaticLeave.path("noone_joined_timeout").asInt()).isEqualTo(600);
+        // 비녹화 구간 상한은 잠시 멈춘 회의까지 끊으므로 보내지 않는다.
+        assertThat(automaticLeave.has("in_call_not_recording_timeout")).isFalse();
+    }
+
+    @Test
+    void omitsAutomaticLeaveWhenNoTimeoutIsConfigured() throws Exception {
+        client("recall-key", "", null, 0).invite(request(), MEETING_ID);
+
+        assertThat(jsonMapper.readTree(requestBody.get()).has("automatic_leave")).isFalse();
+    }
+
+    @Test
+    void sendsOnlyTheConfiguredAutomaticLeaveTimeout() throws Exception {
+        client("recall-key", "", 1800, null).invite(request(), MEETING_ID);
+
+        JsonNode automaticLeave = jsonMapper.readTree(requestBody.get()).path("automatic_leave");
+        assertThat(automaticLeave.path("in_call_recording_timeout").asInt()).isEqualTo(1800);
+        assertThat(automaticLeave.has("waiting_room_timeout")).isFalse();
+        assertThat(automaticLeave.has("noone_joined_timeout")).isFalse();
     }
 
     @Test
@@ -109,9 +174,84 @@ class RecallBotClientTest {
     }
 
     private RecallBotClient client(String apiKey) {
+        return client(apiKey, "");
+    }
+
+    @Test
+    void removesTheBotFromTheCallThroughTheLeaveCallEndpoint() {
+        client("recall-key").leaveCall(BOT_ID);
+
+        assertThat(requestPath.get()).isEqualTo("/api/v1/bot/" + BOT_ID + "/leave_call/");
+        assertThat(authorization.get()).isEqualTo("recall-key");
+    }
+
+    /** 이미 통화에 없는 봇에 Recall은 400을 준다. 재시도해도 소용없으므로 도메인 오류로 바꾼다. */
+    @Test
+    void mapsARejectedLeaveCallToADomainError() {
+        responseStatus = 400;
+        responseBody = "{\"detail\":\"bot is not in a call\"}";
+
+        assertThatThrownBy(() -> client("recall-key").leaveCall(BOT_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(MeetingError.BOT_ALREADY_LEFT);
+    }
+
+    @Test
+    void readsTheLatestStatusChangeRegardlessOfTheOrderRecallReturns() {
+        responseBody = """
+                {"id":"%s","status_changes":[
+                  {"code":"joining_call","sub_code":null,"created_at":"2026-10-14T09:00:52Z"},
+                  {"code":"media_expired","sub_code":null,"created_at":"2026-10-14T09:16:53Z"},
+                  {"code":"call_ended","sub_code":"call_ended_by_host","created_at":"2026-10-14T09:04:00Z"}
+                ]}""".formatted(BOT_ID);
+
+        RecallBotClient.RecallBotStatus botStatus = client("recall-key").fetchStatus(BOT_ID).orElseThrow();
+
+        assertThat(requestPath.get()).isEqualTo("/api/v1/bot/" + BOT_ID + "/");
+        assertThat(botStatus.code()).isEqualTo("media_expired");
+        assertThat(botStatus.occurredAt()).isEqualTo(Instant.parse("2026-10-14T09:16:53Z"));
+    }
+
+    @Test
+    void returnsNothingWhenRecallHasNoStatusChangeYet() {
+        responseBody = "{\"id\":\"%s\",\"status_changes\":[]}".formatted(BOT_ID);
+
+        assertThat(client("recall-key").fetchStatus(BOT_ID)).isEmpty();
+    }
+
+    @Test
+    void mapsAMissingBotToADomainError() {
+        responseStatus = 404;
+        responseBody = "{\"detail\":\"Not found.\"}";
+
+        assertThatThrownBy(() -> client("recall-key").fetchStatus(BOT_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(MeetingError.BOT_NOT_FOUND);
+    }
+
+    @Test
+    void mapsALeaveCallServerErrorToRecallUnavailable() {
+        responseStatus = 502;
+        responseBody = "{}";
+
+        assertThatThrownBy(() -> client("recall-key").leaveCall(BOT_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getErrorCode())
+                .isEqualTo(MeetingError.RECALL_UNAVAILABLE);
+    }
+
+    private RecallBotClient client(String apiKey, String transcriptWebhookUrl) {
+        return client(apiKey, transcriptWebhookUrl, 1800, 600);
+    }
+
+    private RecallBotClient client(String apiKey, String transcriptWebhookUrl, Integer recordingTimeoutSeconds,
+                                   Integer waitingTimeoutSeconds) {
         String apiUrl = "http://127.0.0.1:" + httpServer.getAddress().getPort() + "/api/v1/bot/";
         RecallProperties recallProperties = new RecallProperties(
-                apiUrl, apiKey, "AIDEEP Notetaker", "");
+                apiUrl, apiKey, "AIDEEP Notetaker", "", transcriptWebhookUrl,
+                recordingTimeoutSeconds, waitingTimeoutSeconds);
         return new RecallBotClient(recallProperties, RestClient.create());
     }
 
@@ -122,6 +262,7 @@ class RecallBotClientTest {
 
     private void handleRequest(HttpExchange httpExchange) throws IOException {
         authorization.set(httpExchange.getRequestHeaders().getFirst("Authorization"));
+        requestPath.set(httpExchange.getRequestURI().getPath());
         requestBody.set(new String(httpExchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         byte[] body = responseBody.getBytes(StandardCharsets.UTF_8);
         httpExchange.getResponseHeaders().set("Content-Type", "application/json");

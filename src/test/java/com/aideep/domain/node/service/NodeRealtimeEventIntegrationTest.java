@@ -8,6 +8,7 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.aideep.domain.node.config.NodeEventProperties;
@@ -109,8 +110,60 @@ class NodeRealtimeEventIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.execute("truncate node_command_results, processed_node_events, nodes, workspaces cascade");
+        jdbcTemplate.execute(
+                "truncate node_command_results, processed_node_events, edges, nodes, workspaces cascade");
         jdbcTemplate.update("insert into workspaces(workspace_id, title) values (?,?)", WORKSPACE_ID, "AI 워크스페이스");
+    }
+
+    @Test
+    void publishesEdgeCreateAfterNodeCreateWhenParentNodeIdIsGiven() {
+        nodeCommandService.apply(createEvent(UUID.fromString("11111111-1111-4111-8111-111111111111")));
+        UUID parentId = nodeRepository.findAll().getFirst().getId();
+        clearInvocations(stringRedisTemplate);
+
+        nodeCommandService.apply(createEventWithParent(UUID.fromString("44444444-4444-4444-8444-444444444444"),
+                parentId, "\"right\"", "\"left\""));
+
+        var argumentCaptor = ArgumentCaptor.forClass(String.class);
+        verify(stringRedisTemplate, times(2))
+                .convertAndSend(eq(NodeEventBusPublisher.CHANNEL), argumentCaptor.capture());
+        UUID childId = UUID.fromString(jdbcTemplate.queryForObject(
+                "select node_id::text from nodes where node_id <> ?", String.class, parentId));
+        UUID edgeId = UUID.fromString(jdbcTemplate.queryForObject("select edge_id::text from edges", String.class));
+        var nodePayload = objectMapper.readTree(argumentCaptor.getAllValues().get(0)).get("payload");
+        var edgeEnvelope = objectMapper.readTree(argumentCaptor.getAllValues().get(1));
+        var edgePayload = edgeEnvelope.get("payload");
+        assertThat(nodePayload.get("type").asString()).isEqualTo("NODE_CREATE");
+        assertThat(nodePayload.get("node").get("nodeId").asString()).isEqualTo(childId.toString());
+        assertThat(edgeEnvelope.get("kind").asString()).isEqualTo("WORKSPACE_EVENT");
+        assertThat(edgeEnvelope.get("origin").asString()).isEqualTo("spring-api");
+        assertThat(edgePayload.get("type").asString()).isEqualTo("EDGE_CREATE");
+        assertThat(edgePayload.get("userId").asString()).isEqualTo("system:ai");
+        assertThat(edgePayload.get("workspaceId").asString()).isEqualTo(WORKSPACE_ID.toString());
+        assertThat(edgePayload.get("edge").get("edgeId").asString()).isEqualTo(edgeId.toString());
+        assertThat(edgePayload.get("edge").get("sourceId").asString()).isEqualTo(parentId.toString());
+        assertThat(edgePayload.get("edge").get("targetId").asString()).isEqualTo(childId.toString());
+        assertThat(edgePayload.get("edge").get("sourceHandle").asString()).isEqualTo("right");
+        assertThat(edgePayload.get("edge").get("targetHandle").asString()).isEqualTo("left");
+    }
+
+    @Test
+    void keepsEdgeHandlesAsNullAndPublishesOnlyNodeCreateWithoutParent() {
+        nodeCommandService.apply(createEvent(UUID.fromString("11111111-1111-4111-8111-111111111111")));
+        UUID parentId = nodeRepository.findAll().getFirst().getId();
+        clearInvocations(stringRedisTemplate);
+        nodeCommandService.apply(createEventWithParent(UUID.fromString("44444444-4444-4444-8444-444444444444"),
+                parentId, "null", "null"));
+        var argumentCaptor = ArgumentCaptor.forClass(String.class);
+        verify(stringRedisTemplate, times(2))
+                .convertAndSend(eq(NodeEventBusPublisher.CHANNEL), argumentCaptor.capture());
+        var edge = objectMapper.readTree(argumentCaptor.getAllValues().get(1)).get("payload").get("edge");
+        assertThat(edge.get("sourceHandle").isNull()).isTrue();
+        assertThat(edge.get("targetHandle").isNull()).isTrue();
+
+        clearInvocations(stringRedisTemplate);
+        nodeCommandService.apply(createEvent(UUID.fromString("66666666-6666-4666-8666-666666666666")));
+        verify(stringRedisTemplate).convertAndSend(eq(NodeEventBusPublisher.CHANNEL), anyString());
     }
 
     @Test
@@ -336,6 +389,13 @@ class NodeRealtimeEventIntegrationTest {
 
     private NodeEventEnvelope createEvent(UUID eventId) {
         return nodeEventParser.parse(createEventJson(eventId, WORKSPACE_ID));
+    }
+
+    private NodeEventEnvelope createEventWithParent(UUID eventId, UUID parentNodeId, String sourceHandle,
+                                                    String targetHandle) {
+        return nodeEventParser.parse(createEventJson(eventId, WORKSPACE_ID).replace("\"payload\": {",
+                "\"payload\": {\"parentNodeId\": \"" + parentNodeId + "\", \"sourceHandle\": " + sourceHandle
+                        + ", \"targetHandle\": " + targetHandle + ","));
     }
 
     private String createEventJson(UUID eventId, UUID workspaceId) {

@@ -22,6 +22,8 @@ public class RecallStatusMapper {
             "in_call_recording", MeetingStatus.RECORDING,
             "call_ended", MeetingStatus.CALL_ENDED,
             "done", MeetingStatus.DONE,
+            // 녹화 보관이 만료될 때 오는 코드로, 항상 done 뒤에 온다. done 웹훅을 놓친 회의를 닫아주는 안전망이다.
+            "media_expired", MeetingStatus.DONE,
             "fatal", MeetingStatus.FAILED);
 
     public Optional<MeetingStatus> map(String code) {
