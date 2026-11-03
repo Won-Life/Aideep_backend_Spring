@@ -225,7 +225,7 @@ class NodeRealtimeEventIntegrationTest {
         UUID nodeId = nodeRepository.findAll().getFirst().getId();
         clearInvocations(stringRedisTemplate);
         nodeCommandService.apply(patchEvent(UUID.fromString("44444444-4444-4444-8444-444444444444"), nodeId, 1,
-                "{\"data\": {\"markdownBody\": \"updated\"}}"));
+                "{\"data\": {\"color\": \"#123456\"}}"));
         var argumentCaptor = ArgumentCaptor.forClass(String.class);
         verify(stringRedisTemplate).convertAndSend(eq(NodeEventBusPublisher.CHANNEL), argumentCaptor.capture());
         var payload = objectMapper.readTree(argumentCaptor.getValue()).get("payload");
@@ -233,8 +233,51 @@ class NodeRealtimeEventIntegrationTest {
         assertThat(payload.get("nodeId").asString()).isEqualTo(nodeId.toString());
         assertThat(payload.get("patch").has("title")).isFalse();
         assertThat(payload.get("patch").has("nodeType")).isFalse();
-        assertThat(payload.get("patch").get("data").get("markdownBody").asString()).isEqualTo("updated");
-        assertThat(payload.get("patch").get("data").get("color").asString()).isEqualTo("#ffffff");
+        assertThat(payload.get("patch").get("data").get("color").asString()).isEqualTo("#123456");
+        assertThat(payload.get("patch").get("data").get("markdownBody").asString()).isEqualTo("# 회의 요약");
+    }
+
+    /**
+     * 본문은 클라이언트로 중계하는 WORKSPACE_EVENT가 아니라, 실시간 서버가 직접 Y.Doc에 반영하는 NODE_BODY_PATCH로 나간다.
+     * NODE_UPDATE 다음에 발행해 그래프 갱신이 본문 반영을 기다리지 않게 한다.
+     */
+    @Test
+    void publishesNodeBodyPatchForMarkdownBodyAfterNodeUpdate() {
+        nodeCommandService.apply(createEvent(UUID.fromString("11111111-1111-4111-8111-111111111111")));
+        UUID nodeId = nodeRepository.findAll().getFirst().getId();
+        UUID patchEventId = UUID.fromString("44444444-4444-4444-8444-444444444444");
+        clearInvocations(stringRedisTemplate);
+
+        nodeCommandService.apply(patchEvent(patchEventId, nodeId, 1,
+                "{\"data\": {\"markdownBody\": \"AI가 쓴 본문\"}}"));
+
+        var argumentCaptor = ArgumentCaptor.forClass(String.class);
+        verify(stringRedisTemplate, times(2))
+                .convertAndSend(eq(NodeEventBusPublisher.CHANNEL), argumentCaptor.capture());
+        var envelopes = argumentCaptor.getAllValues().stream().map(objectMapper::readTree).toList();
+        assertThat(envelopes.getFirst().get("kind").asString()).isEqualTo("WORKSPACE_EVENT");
+        var bodyPatchEnvelope = envelopes.getLast();
+        assertThat(bodyPatchEnvelope.get("kind").asString()).isEqualTo("NODE_BODY_PATCH");
+        assertThat(bodyPatchEnvelope.get("v").asInt()).isEqualTo(1);
+        var bodyPatch = bodyPatchEnvelope.get("payload");
+        assertThat(bodyPatch.get("workspaceId").asString()).isEqualTo(WORKSPACE_ID.toString());
+        assertThat(bodyPatch.get("nodeId").asString()).isEqualTo(nodeId.toString());
+        assertThat(bodyPatch.get("markdown").asString()).isEqualTo("AI가 쓴 본문");
+        assertThat(bodyPatch.get("actorId").asString()).isEqualTo("system:ai");
+        assertThat(bodyPatch.get("commandEventId").asString()).isEqualTo(patchEventId.toString());
+    }
+
+    /** 본문이 없는 패치는 NODE_BODY_PATCH를 만들지 않는다. */
+    @Test
+    void doesNotPublishNodeBodyPatchWhenPatchHasNoMarkdownBody() {
+        nodeCommandService.apply(createEvent(UUID.fromString("11111111-1111-4111-8111-111111111111")));
+        UUID nodeId = nodeRepository.findAll().getFirst().getId();
+        clearInvocations(stringRedisTemplate);
+
+        nodeCommandService.apply(patchEvent(UUID.fromString("44444444-4444-4444-8444-444444444444"), nodeId, 1,
+                "{\"title\": \"제목만\"}"));
+
+        verify(stringRedisTemplate).convertAndSend(eq(NodeEventBusPublisher.CHANNEL), anyString());
     }
 
     @Test
