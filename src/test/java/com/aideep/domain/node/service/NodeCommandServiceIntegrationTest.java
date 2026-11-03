@@ -321,14 +321,15 @@ class NodeCommandServiceIntegrationTest {
         assertThat(processedNodeEventRepository.count()).isEqualTo(1);
     }
 
+    /** 본문은 실시간 서버가 쓰므로 DB의 markdownBody는 그대로 남고, 나머지 필드만 병합된다. */
     @Test
-    void mergesPatchDataFieldByFieldAndIncreasesVersion() {
+    void mergesPatchDataFieldByFieldAndLeavesMarkdownBodyToRealtimeServer() {
         UUID createEventId = UUID.fromString("11111111-1111-4111-8111-111111111111");
         nodeCommandService.apply(createEvent(createEventId));
         UUID nodeId = nodeRepository.findAll().getFirst().getId();
 
         nodeCommandService.apply(patchEvent(UUID.fromString("44444444-4444-4444-8444-444444444444"), nodeId, 1, """
-                {"title": "수정된 회의 요약", "data": {"markdownBody": "AI가 수정한 내용"}}
+                {"title": "수정된 회의 요약", "data": {"markdownBody": "AI가 수정한 내용", "color": "#123456"}}
                 """));
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
@@ -336,9 +337,25 @@ class NodeCommandServiceIntegrationTest {
                         + " content->>'jsonBody' as json_body from nodes where node_id=?", nodeId);
         assertThat(row).containsEntry("title", "수정된 회의 요약")
                 .containsEntry("version", 2)
-                .containsEntry("markdown", "AI가 수정한 내용")
-                .containsEntry("color", "#ffffff")
+                .containsEntry("markdown", "# 회의 요약")
+                .containsEntry("color", "#123456")
                 .containsEntry("json_body", "{\"type\":\"doc\",\"content\":[]}");
+    }
+
+    /** 본문만 바꾸는 패치는 content를 건드리지 않는다. 제목·타입도 없으니 버전만 올라간다. */
+    @Test
+    void keepsContentUnchangedWhenPatchOnlyCarriesMarkdownBody() {
+        nodeCommandService.apply(createEvent(UUID.fromString("11111111-1111-4111-8111-111111111111")));
+        UUID nodeId = nodeRepository.findAll().getFirst().getId();
+
+        nodeCommandService.apply(patchEvent(UUID.fromString("44444444-4444-4444-8444-444444444444"), nodeId, 1,
+                "{\"data\": {\"markdownBody\": \"본문만 바꾼다\"}}"));
+
+        assertThat(jdbcTemplate.queryForMap("select title, version, content->>'markdownBody' as markdown"
+                + " from nodes where node_id=?", nodeId))
+                .containsEntry("title", "AI 회의 요약")
+                .containsEntry("version", 2)
+                .containsEntry("markdown", "# 회의 요약");
     }
 
     @Test

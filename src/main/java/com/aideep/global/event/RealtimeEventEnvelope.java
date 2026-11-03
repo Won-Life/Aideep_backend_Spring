@@ -15,9 +15,18 @@ public record RealtimeEventEnvelope<P>(int v, String kind, UUID messageId, Insta
     public static final String CHANNEL = "aideep.realtime.v1";
     public static final int VERSION = 1;
     public static final String WORKSPACE_EVENT = "WORKSPACE_EVENT";
+    public static final String NODE_BODY_PATCH = "NODE_BODY_PATCH";
     public static final String ORIGIN = "spring-api";
 
     public static <P> RealtimeEventEnvelope<P> workspaceEvent(UUID messageId, Instant publishedAt, P payload) {
         return new RealtimeEventEnvelope<>(VERSION, WORKSPACE_EVENT, messageId, publishedAt, ORIGIN, payload);
+    }
+
+    /**
+     * 클라이언트로 그대로 중계되는 {@link #WORKSPACE_EVENT}와 달리, 실시간 서버가 받아서 Y.Doc을 직접 바꿔야 하는 명령이다.
+     * 그래서 kind를 따로 둔다.
+     */
+    public static <P> RealtimeEventEnvelope<P> nodeBodyPatch(UUID messageId, Instant publishedAt, P payload) {
+        return new RealtimeEventEnvelope<>(VERSION, NODE_BODY_PATCH, messageId, publishedAt, ORIGIN, payload);
     }
 }

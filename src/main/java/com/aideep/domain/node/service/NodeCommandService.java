@@ -1,5 +1,6 @@
 package com.aideep.domain.node.service;
 
+import com.aideep.domain.node.dto.event.NodeBodyPatch;
 import com.aideep.domain.node.dto.event.NodeCreateCommand;
 import com.aideep.domain.node.dto.event.TerminalNodeCommandFailure;
 import java.util.Arrays;
@@ -96,16 +97,16 @@ public class NodeCommandService {
         }
 
         Instant now = clock.instant();
-        List<NodeWorkspaceEvent> nodeWorkspaceEvents = switch (nodeEventEnvelope.eventType()) {
-            case NODE_CREATE_REQUESTED -> createNode(nodeEventEnvelope, now);
-            case NODE_PATCH_REQUESTED -> List.of(patchNode(nodeEventEnvelope, now));
+        NodeRealtimeEvent nodeRealtimeEvent = switch (nodeEventEnvelope.eventType()) {
+            case NODE_CREATE_REQUESTED -> new NodeRealtimeEvent(nodeEventEnvelope.eventId(),
+                    nodeEventEnvelope.workspaceId(), createNode(nodeEventEnvelope, now));
+            case NODE_PATCH_REQUESTED -> patchNode(nodeEventEnvelope, now);
         };
         processedNodeEventRepository.save(new ProcessedNodeEvent(nodeEventEnvelope.eventId(),
                 nodeEventEnvelope.eventType().name(), nodeEventEnvelope.workspaceId(),
                 nodeEventEnvelope.occurredAt(), now));
         processedNodeEventRepository.flush();
-        applicationEventPublisher.publishEvent(new NodeRealtimeEvent(nodeEventEnvelope.eventId(),
-                nodeEventEnvelope.workspaceId(), nodeWorkspaceEvents));
+        applicationEventPublisher.publishEvent(nodeRealtimeEvent);
     }
 
     /** edge를 만들었다면 노드가 먼저 그려질 수 있도록 {@code NODE_CREATE} 다음에 {@code EDGE_CREATE}를 발행한다. */
@@ -137,7 +138,11 @@ public class NodeCommandService {
                 edge.getSourceHandle(), edge.getTargetHandle())));
     }
 
-    private NodeWorkspaceEvent patchNode(NodeEventEnvelope nodeEventEnvelope, Instant now) {
+    /**
+     * 본문({@code data.markdownBody})은 DB에 쓰지 않는다. 본문의 소스는 {@code nodes.yjs_state}의 Y.Doc이고 그 문서를 가진 쪽은
+     * 실시간 서버뿐이라, 커밋 후 {@link NodeBodyPatch}로 넘긴다. 나머지 필드는 지금까지처럼 이 트랜잭션에서 반영한다.
+     */
+    private NodeRealtimeEvent patchNode(NodeEventEnvelope nodeEventEnvelope, Instant now) {
         NodePatchCommand nodePatchCommand = nodeCommandPayloadParser.parsePatch(nodeEventEnvelope);
         Node node = nodeRepository
                 .findByIdAndWorkspaceIdAndDeletedAtIsNull(nodePatchCommand.nodeId(),
@@ -146,13 +151,18 @@ public class NodeCommandService {
                         "Node not found in workspace. nodeId=" + nodePatchCommand.nodeId()
                                 + " workspaceId=" + nodeEventEnvelope.workspaceId()));
         node.applyPatch(nodePatchCommand.title(), nodePatchCommand.nodeType(),
-                mergeContent(node.getContent(), nodePatchCommand.data()),
+                mergeContent(node.getContent(), nodePatchCommand.dataWithoutMarkdownBody()),
                 nodePatchCommand.expectedVersion(), now);
         saveSuccess(nodeEventEnvelope, node, now);
-        return new NodeWorkspaceEvent.Updated("NODE_UPDATE", node.getWorkspaceId(), "system:ai", node.getId(),
-                new NodeWorkspaceEvent.Patch(nodePatchCommand.title(),
-                        nodePatchCommand.nodeType() == null ? null : node.getNodeType().name(),
-                        nodePatchCommand.data() == null ? null : readObject(node.getContent())));
+        NodeWorkspaceEvent nodeUpdated = new NodeWorkspaceEvent.Updated("NODE_UPDATE", node.getWorkspaceId(),
+                "system:ai", node.getId(), new NodeWorkspaceEvent.Patch(nodePatchCommand.title(),
+                nodePatchCommand.nodeType() == null ? null : node.getNodeType().name(),
+                nodePatchCommand.data() == null ? null : readObject(node.getContent())));
+        String markdownBody = nodePatchCommand.markdownBody();
+        return new NodeRealtimeEvent(nodeEventEnvelope.eventId(), nodeEventEnvelope.workspaceId(),
+                List.of(nodeUpdated), markdownBody == null ? null
+                : new NodeBodyPatch(nodeEventEnvelope.workspaceId(), node.getId(), markdownBody, "system:ai",
+                        nodeEventEnvelope.eventId()));
     }
 
     private void saveSuccess(NodeEventEnvelope nodeEventEnvelope, Node node, Instant now) {
